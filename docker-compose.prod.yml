@@ -12,12 +12,15 @@ services:
       NODE_ENV: production
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-4.1}
+      LLM_MODELS: ${LLM_MODELS:-gpt-4.1,gpt-4.1-mini}
+      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-8}
+      PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0}
+      COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0}
       ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
       MCP_CONFIG: backend/mcp.config.json
+      PORT: 3025
     volumes:
       - ..:/workspace:cached
-    environment:
-      PORT: 3025
     ports:
       - '3025:3025'
 
