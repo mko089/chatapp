@@ -1,0 +1,35 @@
+services:
+  chat-backend:
+    image: node:20.19
+    working_dir: /workspace/chatapp
+    command: >-
+      bash -lc "npm install &&
+      (cd ../metersapp/apps/meters-mcp && npm install) &&
+      (cd ../EmployeeApp/apps/employee-mcp && npm install) &&
+      npm run dev --workspace backend"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4.1}
+      ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
+    volumes:
+      - ..:/workspace:cached
+    ports:
+      - '4025:4025'
+    tty: true
+    stdin_open: true
+
+  chat-frontend:
+    image: node:20.19
+    working_dir: /workspace/chatapp
+    command: >-
+      bash -lc "npm install && npm run dev --workspace frontend"
+    environment:
+      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://192.168.14.55:4025}
+    volumes:
+      - ..:/workspace:cached
+    ports:
+      - '4225:4225'
+    depends_on:
+      - chat-backend
+    tty: true
+    stdin_open: true

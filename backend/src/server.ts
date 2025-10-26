@@ -1,0 +1,54 @@
+import Fastify from 'fastify';
+import OpenAI from 'openai';
+import cors from '@fastify/cors';
+import { config } from './config.js';
+import logger from './logger.js';
+import { MCPManager } from './mcp/manager.js';
+import { registerMcpRoutes } from './routes/mcp.js';
+import { registerChatRoutes } from './routes/chat.js';
+import { registerHealthRoute } from './routes/health.js';
+import { registerSessionRoutes } from './routes/sessions.js';
+
+async function bootstrap() {
+  if (!config.openAiApiKey) {
+    logger.warn('OPENAI_API_KEY is not set — LLM calls will fail');
+  }
+
+  const app = Fastify({ logger: logger as any });
+  await app.register(cors, { origin: true });
+
+  app.addHook('onRequest', async (request, reply) => {
+    const headerIp = (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+    const rawIp = headerIp || request.ip;
+    const normalizedIp = rawIp?.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;
+    const allowed = config.allowedIps.includes(normalizedIp ?? '');
+    if (!allowed) {
+      request.log.warn({ ip: normalizedIp }, 'Blocked request from disallowed IP');
+      return reply.code(403).send({ error: 'Forbidden' });
+    }
+  });
+
+  const mcpManager = new MCPManager(config.mcpConfigPath);
+  await mcpManager.init();
+
+  const openAi = new OpenAI({ apiKey: config.openAiApiKey });
+
+  await registerMcpRoutes(app as any, { mcpManager });
+  await registerChatRoutes(app as any, { mcpManager, openAi });
+  await registerHealthRoute(app as any, { mcpManager, openAi });
+  await registerSessionRoutes(app as any);
+
+  app.addHook('onClose', async () => {
+    await mcpManager.shutdown();
+  });
+
+  try {
+    await app.listen({ port: config.port, host: '0.0.0.0' });
+    logger.info({ port: config.port }, 'chatapi listening');
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to start server');
+    process.exit(1);
+  }
+}
+
+bootstrap();
