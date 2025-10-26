@@ -58,13 +58,17 @@ export function MessageList({
                 ? inlineSummaryFormatter(tool)
                 : fallbackSummary(tool);
               const preview = limitInline(summary);
+              const toolTimestamp = formatTimestampLabel(tool.timestamp);
               nodes.push(
                 <div key={key} className="message tool tool-inline" title={summary}>
                   <div className="tool-inline-summary">{preview}</div>
-                  <div className="tool-inline-actions">
-                    <button type="button" onClick={() => onSelectToolResult?.(tool)}>
-                      Szczegóły
-                    </button>
+                  <div className="tool-inline-footer">
+                    {toolTimestamp ? <span className="tool-inline-timestamp">{toolTimestamp}</span> : <span />}
+                    <div className="tool-inline-actions">
+                      <button type="button" onClick={() => onSelectToolResult?.(tool)}>
+                        Szczegóły
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -74,9 +78,16 @@ export function MessageList({
           toolCursor += slice.length;
         }
 
+        const timestampLabel = formatTimestampLabel(message.timestamp);
+
         nodes.push(
           <div key={`msg-${idx}`} className={`message ${message.role}`}>
-            {message.role === 'tool' ? <pre>{message.content}</pre> : message.content}
+            <div className="message-body">
+              {message.role === 'tool' ? <pre>{message.content}</pre> : message.content}
+            </div>
+            {timestampLabel ? (
+              <div className={`message-meta message-meta-${message.role}`}>{timestampLabel}</div>
+            ) : null}
           </div>
         );
 
@@ -92,13 +103,17 @@ export function MessageList({
               ? inlineSummaryFormatter(tool)
               : fallbackSummary(tool);
             const preview = limitInline(summary);
+            const toolTimestamp = formatTimestampLabel(tool.timestamp);
             return (
               <div key={`tool-tail-${toolCursor + idx}`} className="message tool tool-inline" title={summary}>
                 <div className="tool-inline-summary">{preview}</div>
-                <div className="tool-inline-actions">
-                  <button type="button" onClick={() => onSelectToolResult?.(tool)}>
-                    Szczegóły
-                  </button>
+                <div className="tool-inline-footer">
+                  {toolTimestamp ? <span className="tool-inline-timestamp">{toolTimestamp}</span> : <span />}
+                  <div className="tool-inline-actions">
+                    <button type="button" onClick={() => onSelectToolResult?.(tool)}>
+                      Szczegóły
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -128,4 +143,29 @@ function limitInline(summary: string, maxChars = 520): string {
     return summary;
   }
   return `${summary.slice(0, maxChars - 1)}…`;
+}
+
+function formatTimestampLabel(timestamp?: string): string | null {
+  if (!timestamp) {
+    return null;
+  }
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  if (isToday) {
+    return new Intl.DateTimeFormat('pl-PL', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  }
+  return new Intl.DateTimeFormat('pl-PL', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 }

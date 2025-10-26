@@ -288,12 +288,23 @@ function AppContent() {
       params.set('session', resolvedSessionId);
       window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
     }
-    const userMessage: ChatMessage = { role: 'user', content };
+    const now = new Date();
+    const userMessage: ChatMessage = { role: 'user', content, timestamp: now.toISOString() };
+    const localeFormatter = new Intl.DateTimeFormat('pl-PL', {
+      dateStyle: 'long',
+      timeStyle: 'medium',
+    });
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
+    const contextMessage: ChatMessage = {
+      role: 'system',
+      content: `Aktualny czas użytkownika: ${localeFormatter.format(now)} (strefa ${timeZone})`,
+      timestamp: now.toISOString(),
+    };
     setPendingMessages((prev) => [...prev, userMessage]);
 
     const payload = {
       sessionId: resolvedSessionId,
-      messages: [systemMessage, ...history, userMessage],
+      messages: [systemMessage, contextMessage, ...history, userMessage],
     };
 
     try {

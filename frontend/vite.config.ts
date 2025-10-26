@@ -11,5 +11,13 @@ export default defineConfig({
     port: 4173,
     host: '0.0.0.0',
   },
+  test: {
+    environment: 'jsdom',
+    setupFiles: './vitest.setup.ts',
+    globals: true,
+    cache: false,
+    coverage: {
+      reporter: ['text', 'html'],
+    },
+  },
 });
-

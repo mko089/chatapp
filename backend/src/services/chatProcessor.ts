@@ -68,7 +68,7 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
         content: assistantContent,
       });
 
-      const storedMessages = buildStoredMessages(payload.messages, assistantContent);
+      const { storedMessages, assistantRecord } = prepareStoredMessages(payload.messages, assistantContent);
       const combinedToolHistory = combineToolResults(existingSession?.toolResults ?? [], toolResults);
       await persistSession({
         existingSession,
@@ -80,8 +80,12 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
       return {
         kind: 'success',
         sessionId,
-        assistantMessage: assistantMessage.content
-          ? { role: 'assistant', content: assistantMessage.content }
+        assistantMessage: assistantContent
+          ? {
+              role: 'assistant',
+              content: assistantContent,
+              timestamp: assistantRecord?.timestamp ?? new Date().toISOString(),
+            }
           : undefined,
         storedMessages,
         newToolResults: toolResults,
@@ -142,7 +146,7 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
     }
   }
 
-  const storedMessages = buildStoredMessages(payload.messages, extractLastAssistant(conversation));
+  const { storedMessages } = prepareStoredMessages(payload.messages, extractLastAssistant(conversation));
   const combinedToolHistory = combineToolResults(existingSession?.toolResults ?? [], toolResults);
   await persistSession({
     existingSession,
@@ -200,16 +204,6 @@ function buildInitialConversation(messages: IncomingChatMessage[]): ChatCompleti
   return conversation;
 }
 
-function buildStoredMessages(messages: IncomingChatMessage[], assistantContent: string | null): StoredChatMessage[] {
-  const stored = messages
-    .filter((msg) => msg.role !== 'tool')
-    .map((msg) => ({ role: msg.role, content: msg.content ?? '' })) as StoredChatMessage[];
-  if (assistantContent) {
-    stored.push({ role: 'assistant', content: assistantContent });
-  }
-  return stored;
-}
-
 function createToolRecord(name: string, args: unknown, result: unknown): ToolCallResult {
   return {
     name,
@@ -220,7 +214,19 @@ function createToolRecord(name: string, args: unknown, result: unknown): ToolCal
 }
 
 function combineToolResults(existing: StoredToolInvocation[], latest: ToolCallResult[]): StoredToolInvocation[] {
-  return [...existing, ...latest.map((entry) => ({ ...entry } as StoredToolInvocation))];
+  const normalizedExisting = existing.map((entry) => ({
+    name: entry.name,
+    args: entry.args,
+    result: entry.result,
+    timestamp: normalizeTimestamp(entry.timestamp),
+  }));
+  const mappedLatest = latest.map((entry) => ({
+    name: entry.name,
+    args: entry.args,
+    result: entry.result,
+    timestamp: normalizeTimestamp(entry.timestamp),
+  }));
+  return [...normalizedExisting, ...mappedLatest];
 }
 
 function extractLastAssistant(conversation: ChatCompletionMessageParam[]): string | null {
@@ -287,4 +293,40 @@ async function persistSession(options: {
     createdAt: existingSession?.createdAt ?? nowIso,
     updatedAt: nowIso,
   });
+}
+
+function prepareStoredMessages(
+  messages: IncomingChatMessage[],
+  assistantContent: string | null,
+): { storedMessages: StoredChatMessage[]; assistantRecord?: StoredChatMessage } {
+  const storedMessages: StoredChatMessage[] = messages
+    .filter((msg) => msg.role !== 'tool' && msg.role !== 'system')
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content ?? '',
+      timestamp: normalizeTimestamp(msg.timestamp),
+    }));
+
+  if (!assistantContent) {
+    return { storedMessages };
+  }
+
+  const assistantRecord: StoredChatMessage = {
+    role: 'assistant',
+    content: assistantContent,
+    timestamp: new Date().toISOString(),
+  };
+
+  storedMessages.push(assistantRecord);
+  return { storedMessages, assistantRecord };
+}
+
+function normalizeTimestamp(input?: string): string {
+  if (input) {
+    const parsed = new Date(input);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date().toISOString();
 }

@@ -4,6 +4,7 @@ import path from 'node:path';
 export type StoredChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  timestamp: string;
 };
 
 export type StoredToolInvocation = {
@@ -35,7 +36,8 @@ function resolvePath(id: string) {
 export async function loadSession(id: string): Promise<SessionRecord | null> {
   try {
     const file = await readFile(resolvePath(id), 'utf-8');
-    return JSON.parse(file) as SessionRecord;
+    const raw = JSON.parse(file) as SessionRecord;
+    return normalizeRecord(raw);
   } catch (error: any) {
     if (error && error.code === 'ENOENT') {
       return null;
@@ -46,5 +48,30 @@ export async function loadSession(id: string): Promise<SessionRecord | null> {
 
 export async function saveSession(record: SessionRecord): Promise<void> {
   await ensureDir();
-  await writeFile(resolvePath(record.id), JSON.stringify(record, null, 2), 'utf-8');
+  const normalized = normalizeRecord(record);
+  await writeFile(resolvePath(record.id), JSON.stringify(normalized, null, 2), 'utf-8');
+}
+
+function normalizeRecord(record: SessionRecord): SessionRecord {
+  return {
+    ...record,
+    messages: (record.messages ?? []).map((message) => ({
+      ...message,
+      timestamp: sanitizeTimestamp(message.timestamp),
+    })),
+    toolResults: (record.toolResults ?? []).map((tool) => ({
+      ...tool,
+      timestamp: sanitizeTimestamp(tool.timestamp),
+    })),
+  };
+}
+
+function sanitizeTimestamp(value?: string): string {
+  if (value) {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date().toISOString();
 }

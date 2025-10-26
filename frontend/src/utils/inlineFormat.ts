@@ -1,4 +1,7 @@
 export function renderInlineValue(value: unknown, limit: number, emptyFallback: string): string {
+  if (value === null || value === undefined) {
+    return emptyFallback;
+  }
   const normalized = normalizeValue(value);
   const rendered = renderValue(normalized, 0, 4);
   const flattened = rendered.replace(/\s+/g, ' ').trim();

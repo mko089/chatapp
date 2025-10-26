@@ -3,6 +3,7 @@ export type IncomingChatMessage = {
   content?: string;
   tool_call_id?: string;
   name?: string;
+  timestamp?: string;
 };
 
 export type ChatRequestPayload = {
@@ -14,6 +15,7 @@ export type ChatRequestPayload = {
 export type AssistantMessage = {
   role: 'assistant';
   content: string;
+  timestamp?: string;
 };
 
 export type ToolCallResult = {

@@ -13,6 +13,7 @@ const ChatMessageSchema = z.object({
   content: z.string().optional().default(''),
   tool_call_id: z.string().optional(),
   name: z.string().optional(),
+  timestamp: z.string().optional(),
 });
 
 const ChatRequestSchema = z.object({

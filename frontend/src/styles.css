@@ -237,6 +237,9 @@ html {
   border-radius: 10px;
   line-height: 1.45;
   font-size: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .message.user {
@@ -279,6 +282,33 @@ html {
   box-shadow: none;
 }
 
+.message-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-body pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-meta {
+  font-size: calc(11px * var(--chat-font-scale, 1));
+  color: rgba(148, 163, 184, 0.8);
+  display: block;
+}
+
+.message-meta.message-meta-user,
+.message-meta.user {
+  text-align: right;
+}
+
+.message-meta.message-meta-assistant,
+.message-meta.assistant {
+  text-align: left;
+}
+
 .tool-inline-summary {
   font-family: 'JetBrains Mono', 'Fira Mono', monospace;
   font-size: calc(13px * var(--chat-font-scale, 1));
@@ -287,6 +317,18 @@ html {
   white-space: pre-wrap;
   word-break: break-word;
   padding: 0;
+}
+
+.tool-inline-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tool-inline-timestamp {
+  font-size: calc(11px * var(--chat-font-scale, 1));
+  color: rgba(148, 163, 184, 0.75);
 }
 
 @media (max-width: 900px) {
