@@ -14,6 +14,8 @@ const llmModelsFromEnv = (process.env.LLM_MODELS ?? '')
   .map((model) => model.trim())
   .filter((model) => model.length > 0);
 
+const DEFAULT_ALLOWED_MODELS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano'];
+
 const ConfigSchema = z.object({
   nodeEnv: z.string().optional().default(process.env.NODE_ENV ?? 'development'),
   port: z.coerce.number().int().positive().default(4025),
@@ -46,7 +48,9 @@ const ConfigSchema = z.object({
     .nonnegative()
     .optional()
     .default(process.env.COMPLETION_TOKEN_COST_USD ? Number.parseFloat(process.env.COMPLETION_TOKEN_COST_USD) : 0.0),
-  llmAllowedModels: z.array(z.string().min(1)).default(llmModelsFromEnv.length ? llmModelsFromEnv : [process.env.LLM_MODEL ?? 'gpt-4.1']),
+  llmAllowedModels: z
+    .array(z.string().min(1))
+    .default(llmModelsFromEnv.length ? llmModelsFromEnv : DEFAULT_ALLOWED_MODELS),
 });
 
 const parsed = ConfigSchema.parse({
@@ -61,8 +65,12 @@ const parsed = ConfigSchema.parse({
   chatMaxIterations: process.env.CHAT_MAX_ITERATIONS,
   promptTokenCostUsd: process.env.PROMPT_TOKEN_COST_USD,
   completionTokenCostUsd: process.env.COMPLETION_TOKEN_COST_USD,
-  llmAllowedModels: llmModelsFromEnv,
+  llmAllowedModels: llmModelsFromEnv.length ? llmModelsFromEnv : undefined,
 });
+
+if (!parsed.llmAllowedModels.includes(parsed.llmModel)) {
+  parsed.llmAllowedModels = [...parsed.llmAllowedModels, parsed.llmModel];
+}
 
 export type AppConfig = typeof parsed;
 

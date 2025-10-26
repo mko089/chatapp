@@ -14,6 +14,8 @@ const systemMessage: ChatMessage = {
   content: 'You are a helpful assistant working with Garden MCP tools (meters, employee).',
 };
 
+const DEFAULT_MODEL_ORDER = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano'];
+
 type HealthResponse = {
   backend: 'ok';
   mcp: { status: 'ok' | 'error' | 'unknown'; error?: string };
@@ -22,9 +24,11 @@ type HealthResponse = {
 
 type UsageSummary = {
   promptTokens: number;
+  cachedPromptTokens?: number;
   completionTokens: number;
   totalTokens: number;
   costUsd: number;
+  model?: string;
 };
 
 function AppContent() {
@@ -106,12 +110,23 @@ function AppContent() {
     [baseUrl],
   );
 
+  const healthQuery = useQuery({
+    queryKey: ['health', baseUrl],
+    queryFn: async () => {
+      const res = await fetch(`${baseUrl}/health`);
+      if (!res.ok) throw new Error('Nie udało się pobrać statusu backendu');
+      return (await res.json()) as HealthResponse;
+    },
+    refetchInterval: 30_000,
+  });
+
   useEffect(() => {
-    const models = healthQuery.data?.openai.allowedModels ?? [];
-    if (models.length > 0) {
-      setAvailableModels(models);
-      if (!models.includes(selectedModel)) {
-        setSelectedModel(models[0]);
+    const modelsFromHealth = healthQuery.data?.openai.allowedModels ?? [];
+    const merged = Array.from(new Set([...DEFAULT_MODEL_ORDER, ...modelsFromHealth]));
+    if (merged.length > 0) {
+      setAvailableModels(merged);
+      if (!merged.includes(selectedModel)) {
+        setSelectedModel(merged[0]);
       }
     }
   }, [healthQuery.data?.openai.allowedModels, selectedModel, setSelectedModel]);
@@ -266,16 +281,6 @@ function AppContent() {
     }));
   }, []);
 
-  const healthQuery = useQuery({
-    queryKey: ['health', baseUrl],
-    queryFn: async () => {
-      const res = await fetch(`${baseUrl}/health`);
-      if (!res.ok) throw new Error('Nie udało się pobrać statusu backendu');
-      return (await res.json()) as HealthResponse;
-    },
-    refetchInterval: 30_000,
-  });
-
   const loadSession = useCallback(async (id: string) => {
     try {
       const res = await fetch(`${baseUrl}/sessions/${id}`);
@@ -284,6 +289,13 @@ function AppContent() {
           setHistory([]);
           setToolResults([]);
           setAssistantToolCounts([]);
+          if (typeof window !== 'undefined') {
+            const newId = window.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+            const params = new URLSearchParams(window.location.search);
+            params.set('session', newId);
+            window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+            setSessionId(newId);
+          }
           return;
         }
         throw new Error(`Nie udało się pobrać sesji (${res.status})`);
@@ -296,7 +308,7 @@ function AppContent() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nie udało się pobrać sesji');
     }
-  }, [baseUrl, refreshUsage, syncConversationState]);
+  }, [baseUrl, refreshUsage, setSessionId, syncConversationState]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -587,6 +599,7 @@ function extractUsageSummary(value: any): UsageSummary | null {
   }
   const totals = value.totals ?? value;
   const promptTokens = Number(totals.promptTokens ?? 0);
+  const cachedPromptTokens = Number(totals.cachedPromptTokens ?? totals.cached_prompt_tokens ?? 0);
   const completionTokens = Number(totals.completionTokens ?? 0);
   const totalTokens = Number(
     totals.totalTokens ?? totals.total_tokens ?? promptTokens + completionTokens,
@@ -598,6 +611,7 @@ function extractUsageSummary(value: any): UsageSummary | null {
   ) {
     return {
       promptTokens,
+      cachedPromptTokens,
       completionTokens,
       totalTokens,
       costUsd,

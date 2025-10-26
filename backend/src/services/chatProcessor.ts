@@ -57,7 +57,7 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
       tool_choice: 'auto',
     });
 
-    recordUsage(sessionId, response.usage);
+    recordUsage(sessionId, response.usage, model);
 
     const choice = response.choices[0];
     const assistantMessage = choice?.message;

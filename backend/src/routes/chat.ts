@@ -47,6 +47,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
 
     const selectedModel = rawPayload.model ?? config.llmModel;
     if (!config.llmAllowedModels.includes(selectedModel)) {
+      request.log.warn({ selectedModel, allowedModels: config.llmAllowedModels }, 'Rejected chat request due to disallowed model');
       reply.status(400);
       return { error: `Model ${selectedModel} is not allowed` };
     }

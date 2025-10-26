@@ -40,6 +40,80 @@
         "*_patch_*"
       ],
       "defaultTimeoutMs": 20000
+    },
+    {
+      "id": "fincost",
+      "transport": "stdio",
+      "command": "./scripts/run-fincost-mcp.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "FINCOST_API_URL": "http://192.168.14.55:3011",
+        "FINCOST_API_KEY": "dev-secret-key",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "blockedTools": [
+        "*_add_*",
+        "*_update_*",
+        "*_delete_*",
+        "*_full_payoff*"
+      ],
+      "defaultTimeoutMs": 20000
+    },
+    {
+      "id": "garden",
+      "transport": "stdio",
+      "command": "./scripts/run-garden-mcp.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "GARDEN_API_URL": "http://192.168.14.55:3016",
+        "GARDEN_ROLE": "admin",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "blockedTools": [
+        "*_delete_*",
+        "*_update_*",
+        "*_create_*"
+      ],
+      "defaultTimeoutMs": 20000
+    },
+    {
+      "id": "posbistro",
+      "transport": "stdio",
+      "command": "../../posbistroapi/apps/posbistro-mcp/run.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "API_BASE": "http://192.168.14.55:3005",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "blockedTools": [
+        "*_delete_*",
+        "*_update_*",
+        "*_create_*"
+      ],
+      "defaultTimeoutMs": 20000
+    },
+    {
+      "id": "keycloak",
+      "transport": "stdio",
+      "command": "../../keycloak-mcp/run.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "KC_BASE_URL": "http://192.168.14.55:8080",
+        "KC_USERNAME": "admin",
+        "KC_PASSWORD": "",
+        "KC_TOKEN_REALM": "master",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "blockedTools": [
+        "*_delete_*",
+        "*_update_*",
+        "*_create_*"
+      ],
+      "defaultTimeoutMs": 20000
     }
   ]
 }

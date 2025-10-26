@@ -3,13 +3,18 @@ services:
     image: node:20.19
     working_dir: /workspace/chatapp
     command: >-
-      bash -lc "npm install &&
-      (cd ../metersapp/apps/meters-mcp && npm install) &&
-      (cd ../EmployeeApp/apps/employee-mcp && npm install) &&
+      bash -lc "npm install && \
+      (cd ../metersapp/apps/meters-mcp && npm install) && \
+      (cd ../EmployeeApp/apps/employee-mcp && npm install) && \
+      (cd ../FinCostApp/apps/fincost-mcp && npm install) && \
+      (cd ../gardenknowledge/apps/garden-mcp && npm install) && \
+      (cd ../posbistroapi && npm install) && \
+      (cd ../keycloak-mcp && npm install) && \
       npm run dev --workspace backend"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4.1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5}
+      LLM_MODELS: ${LLM_MODELS:-gpt-5,gpt-5-mini,gpt-5-nano,gpt-4o-mini,gpt-4.1-mini}
       ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
     volumes:
       - ..:/workspace:cached
