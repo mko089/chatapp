@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { renderInlineValue } from './utils/inlineFormat';
-import { useQuery, QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useQuery, QueryClient, QueryClientProvider, type UseQueryResult } from '@tanstack/react-query';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
-import { StatusBadge } from './components/StatusBadge';
-import type { ChatMessage, ToolInvocation } from './types';
-
-type ToolInfo = {
-  name: string;
-  description?: string;
-  serverId: string;
-};
+import { AppHeader } from './components/AppHeader';
+import { ToolGroupsPanel } from './components/ToolGroupsPanel';
+import { renderInlineValue } from './utils/inlineFormat';
+import { usePersistentState } from './hooks/usePersistentState';
+import type { ChatMessage, ToolInvocation, ToolGroupInfo, ToolInfo } from './types';
 
 const queryClient = new QueryClient();
 const systemMessage: ChatMessage = {
@@ -60,26 +56,26 @@ function AppContent() {
     }
     return window.innerWidth >= 900;
   });
-  const [fontScale, setFontScale] = useState<number>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = window.localStorage.getItem('chat-font-scale');
-      if (stored) {
-        const parsed = Number.parseFloat(stored);
-        if (!Number.isNaN(parsed)) {
-          return Math.min(1.6, Math.max(0.85, parsed));
-        }
+  const clampFont = useCallback((value: number) => Math.min(1.6, Math.max(0.85, value)), []);
+
+  const [fontScale, setFontScale] = usePersistentState<number>('chat-font-scale', 1.1, {
+    deserialize: (value) => {
+      const parsed = Number.parseFloat(value);
+      if (Number.isNaN(parsed)) {
+        return null;
       }
-    }
-    return 1.1;
+      return clampFont(parsed);
+    },
+    serialize: (value) => value.toString(),
   });
-  const [showInlineTools, setShowInlineTools] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const stored = window.localStorage.getItem('chat-show-inline-tools');
-      if (stored === 'true' || stored === 'false') {
-        return stored === 'true';
-      }
-    }
-    return true;
+
+  const [showInlineTools, setShowInlineTools] = usePersistentState<boolean>('chat-show-inline-tools', true, {
+    deserialize: (value) => {
+      if (value === 'true') return true;
+      if (value === 'false') return false;
+      return null;
+    },
+    serialize: (value) => (value ? 'true' : 'false'),
   });
 
   const formatArgs = (args: unknown) => {
@@ -159,7 +155,7 @@ function AppContent() {
     },
   });
 
-  const toolGroups = useMemo(() => {
+  const toolGroups: ToolGroupInfo[] = useMemo(() => {
     const grouped = new Map<string, ToolInfo[]>();
     for (const tool of toolsQuery.data ?? []) {
       const entry = grouped.get(tool.serverId) ?? [];
@@ -167,7 +163,7 @@ function AppContent() {
       grouped.set(tool.serverId, entry);
     }
     return Array.from(grouped.entries())
-      .map(([serverId, tools]) => ({
+      .map(([serverId, tools]): ToolGroupInfo => ({
         serverId,
         tools: tools.slice().sort((a, b) => a.name.localeCompare(b.name)),
       }))
@@ -198,16 +194,6 @@ function AppContent() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem('chat-font-scale', fontScale.toString());
-  }, [fontScale]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem('chat-show-inline-tools', showInlineTools ? 'true' : 'false');
-  }, [showInlineTools]);
-
   const syncConversationState = useCallback(
     (messages: ChatMessage[], toolHistory: ToolInvocation[]) => {
       const displayMessages = filterDisplayMessages(messages);
@@ -234,12 +220,6 @@ function AppContent() {
     },
     [filterDisplayMessages],
   );
-
-  const formatServerName = useCallback((value: string) => {
-    return value
-      .replace(/[_-]/g, ' ')
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-  }, []);
 
   const toggleServer = useCallback((serverId: string) => {
     setExpandedServers((prev) => ({
@@ -364,7 +344,7 @@ function AppContent() {
   const adjustFont = (delta: number) => {
     setFontScale((prev) => {
       const next = Math.round((prev + delta) * 100) / 100;
-      return Math.min(1.6, Math.max(0.85, next));
+      return clampFont(next);
     });
   };
 
@@ -372,66 +352,22 @@ function AppContent() {
 
   return (
     <div className="app-shell" style={{ '--chat-font-scale': fontScale } as CSSProperties}>
-      <header className="app-header">
-        <div className="app-header-left">
-          <h1>Chat MCP</h1>
-          <div className="header-buttons">
-            <button
-              type="button"
-              className="history-button"
-              onClick={() => setIsHistoryOpen(true)}
-              disabled={toolResults.length === 0}
-            >
-              Historia narzędzi
-            </button>
-            <button
-              type="button"
-              className="history-button"
-              onClick={() => setIsToolsOpen((prev) => !prev)}
-            >
-              {isToolsOpen ? 'Ukryj narzędzia' : 'Pokaż narzędzia'}
-            </button>
-          </div>
-          <div className="font-controls" aria-label="Regulacja wielkości tekstu">
-            <button type="button" onClick={() => adjustFont(-0.1)} title="Zmniejsz tekst" aria-label="Zmniejsz tekst">
-              A-
-            </button>
-            <button type="button" onClick={resetFont} title="Domyślny rozmiar" aria-label="Domyślny rozmiar tekstu">
-              {`${Math.round(fontScale * 100)}%`}
-            </button>
-            <button type="button" onClick={() => adjustFont(0.1)} title="Powiększ tekst" aria-label="Powiększ tekst">
-              A+
-            </button>
-            <button
-              type="button"
-              className="inline-toggle"
-              onClick={() => setShowInlineTools((prev) => !prev)}
-              title={showInlineTools ? 'Ukryj wywołania narzędzi w rozmowie' : 'Pokaż wywołania narzędzi w rozmowie'}
-            >
-              {showInlineTools ? 'Ukryj log MCP' : 'Pokaż log MCP'}
-            </button>
-          </div>
-        </div>
-        <div className="status-row">
-          <div className="status">
-            {isBusy || isRestoring
-              ? 'Przetwarzanie…'
-              : toolsQuery.isLoading
-                ? 'Ładowanie narzędzi…'
-                : 'Gotowy'}
-          </div>
-          <StatusBadge
-            label="MCP"
-            status={healthQuery.isLoading ? 'loading' : healthQuery.data?.mcp.status === 'ok' ? 'ok' : 'error'}
-            description={healthQuery.data?.mcp.error}
-          />
-          <StatusBadge
-            label={`OpenAI (${healthQuery.data?.openai.model ?? '…'})`}
-            status={healthQuery.isLoading ? 'loading' : healthQuery.data?.openai.status === 'ok' ? 'ok' : 'error'}
-            description={healthQuery.data?.openai.error}
-          />
-        </div>
-      </header>
+      <AppHeader
+        isBusy={isBusy}
+        isRestoring={isRestoring}
+        toolsLoading={toolsQuery.isLoading}
+        canOpenHistory={toolResults.length > 0}
+        onOpenHistory={() => setIsHistoryOpen(true)}
+        isToolsOpen={isToolsOpen}
+        onToggleTools={() => setIsToolsOpen((prev) => !prev)}
+        fontScaleLabel={`${Math.round(fontScale * 100)}%`}
+        onDecreaseFont={() => adjustFont(-0.1)}
+        onIncreaseFont={() => adjustFont(0.1)}
+        onResetFont={resetFont}
+        showInlineTools={showInlineTools}
+        onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
+        statuses={buildStatuses(healthQuery)}
+      />
 
       {error ? <div className="error-banner">{error}</div> : null}
 
@@ -449,45 +385,13 @@ function AppContent() {
       <ChatInput disabled={isBusy || isRestoring || !sessionId} onSubmit={sendMessage} />
 
       {isToolsOpen ? (
-        <section>
-          <h3>Dostępne narzędzia</h3>
-          {toolsQuery.isError ? (
-            <div className="tool-results-empty">Nie można pobrać listy narzędzi.</div>
-          ) : toolGroups.length === 0 ? (
-            <div className="tool-results-empty">Brak narzędzi MCP.</div>
-          ) : (
-            <div className="tool-groups">
-              {toolGroups.map((group) => {
-                const isExpanded = expandedServers[group.serverId] ?? false;
-                return (
-                  <div key={group.serverId} className="tool-group">
-                    <button
-                      type="button"
-                      className="tool-group-toggle"
-                      onClick={() => toggleServer(group.serverId)}
-                    >
-                      <span>{formatServerName(group.serverId)}</span>
-                      <span className="tool-group-meta">
-                        {group.tools.length} narzędzi {isExpanded ? '▾' : '▸'}
-                      </span>
-                    </button>
-                    {isExpanded ? (
-                      <div className="tool-group-tools">
-                        <div className="tools-grid">
-                          {group.tools.map((tool) => (
-                            <div key={tool.name} className="tool-pill" title={tool.description ?? ''}>
-                              {tool.name}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        <ToolGroupsPanel
+          groups={toolGroups}
+          expandedServers={expandedServers}
+          onToggleServer={toggleServer}
+          isError={Boolean(toolsQuery.isError)}
+          isLoading={toolsQuery.isLoading}
+        />
       ) : null}
 
       {isHistoryOpen ? (
@@ -569,4 +473,43 @@ export default function App() {
       <AppContent />
     </QueryClientProvider>
   );
+}
+
+type StatusDescriptor = {
+  label: string;
+  status: 'ok' | 'error' | 'loading';
+  description?: string;
+};
+
+function buildStatuses(healthQuery: UseQueryResult<HealthResponse>): StatusDescriptor[] {
+  if (healthQuery.isLoading || healthQuery.isFetching) {
+    return [
+      { label: 'MCP', status: 'loading' },
+      { label: 'OpenAI (…)', status: 'loading' },
+    ];
+  }
+
+  if (healthQuery.isError || !healthQuery.data) {
+    const description = healthQuery.error instanceof Error ? healthQuery.error.message : undefined;
+    return [
+      { label: 'MCP', status: 'error', description },
+      { label: 'OpenAI (…)', status: 'error', description },
+    ];
+  }
+
+  const mcpStatus = healthQuery.data.mcp.status === 'ok' ? 'ok' : 'error';
+  const openAiStatus = healthQuery.data.openai.status === 'ok' ? 'ok' : 'error';
+
+  return [
+    {
+      label: 'MCP',
+      status: mcpStatus,
+      description: healthQuery.data.mcp.error,
+    },
+    {
+      label: `OpenAI (${healthQuery.data.openai.model ?? '…'})`,
+      status: openAiStatus,
+      description: healthQuery.data.openai.error,
+    },
+  ];
 }
