@@ -18,7 +18,7 @@ const ChatMessageSchema = z.object({
 
 const ChatRequestSchema = z.object({
   messages: z.array(ChatMessageSchema).min(1),
-  maxIterations: z.number().int().positive().max(8).optional().default(4),
+  maxIterations: z.number().int().positive().max(12).optional(),
   sessionId: z.string().min(1).optional(),
 });
 
@@ -37,11 +37,15 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       return { error: 'Invalid request', details: body.error.issues };
     }
 
-    const payload = body.data as ChatRequestPayload & { maxIterations: number };
-    const sessionId = payload.sessionId ?? randomUUID();
+    const rawPayload = body.data as ChatRequestPayload & { maxIterations?: number };
+    const normalizedPayload: ChatRequestPayload & { maxIterations: number } = {
+      ...rawPayload,
+      maxIterations: rawPayload.maxIterations ?? config.chatMaxIterations,
+    };
+    const sessionId = normalizedPayload.sessionId ?? randomUUID();
     const existingSession = await loadSession(sessionId);
     const result = await processChatInteraction({
-      payload,
+      payload: normalizedPayload,
       sessionId,
       existingSession,
       mcpManager,
@@ -57,6 +61,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
         toolResults: result.newToolResults,
         messages: result.storedMessages,
         toolHistory: result.combinedToolHistory,
+        usage: result.usageSummary,
       };
     }
 
@@ -67,6 +72,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       toolResults: result.newToolResults,
       messages: result.storedMessages,
       toolHistory: result.combinedToolHistory,
+      usage: result.usageSummary,
     };
   });
 }

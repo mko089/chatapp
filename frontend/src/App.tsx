@@ -20,6 +20,13 @@ type HealthResponse = {
   openai: { status: 'ok' | 'error' | 'unknown'; error?: string; model: string };
 };
 
+type UsageSummary = {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  costUsd: number;
+};
+
 function AppContent() {
   const baseUrl = useMemo(() => {
     const explicit = (import.meta as any)?.env?.VITE_CHATAPI_URL as string | undefined;
@@ -77,6 +84,25 @@ function AppContent() {
     },
     serialize: (value) => (value ? 'true' : 'false'),
   });
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+
+  const refreshUsage = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`${baseUrl}/metrics/cost`);
+        if (!res.ok) {
+          return;
+        }
+        const data = await res.json();
+        const sessionTotals = data?.sessions?.[id];
+        const normalized = extractUsageSummary(sessionTotals);
+        setUsageSummary(normalized);
+      } catch (error) {
+        // ignore errors
+      }
+    },
+    [baseUrl],
+  );
 
   const formatArgs = (args: unknown) => {
     if (args === undefined || args === null) {
@@ -254,10 +280,11 @@ function AppContent() {
       const toolHistory = (data.toolHistory ?? data.toolResults ?? []) as ToolInvocation[];
       syncConversationState(data.messages ?? [], toolHistory);
       setPendingMessages([]);
+      void refreshUsage(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nie udało się pobrać sesji');
     }
-  }, [baseUrl, syncConversationState]);
+  }, [baseUrl, refreshUsage, syncConversationState]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -276,6 +303,12 @@ function AppContent() {
     setToolResults([]);
     setAssistantToolCounts([]);
   }, [loadSession]);
+
+  useEffect(() => {
+    if (sessionId) {
+      void refreshUsage(sessionId);
+    }
+  }, [sessionId, refreshUsage]);
 
   const sendMessage = async (content: string) => {
     setError(null);
@@ -344,6 +377,12 @@ function AppContent() {
         syncConversationState([...history, userMessage], combinedToolHistory);
       }
       setPendingMessages((prev) => prev.slice(prev.findIndex((msg) => msg === userMessage) + 1));
+      const normalizedUsage = extractUsageSummary(data?.usage);
+      if (normalizedUsage) {
+        setUsageSummary(normalizedUsage);
+      } else {
+        void refreshUsage(newSessionId);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Nieznany błąd';
       setError(message);
@@ -378,6 +417,7 @@ function AppContent() {
         showInlineTools={showInlineTools}
         onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
         statuses={buildStatuses(healthQuery)}
+        usage={usageSummary}
       />
 
       {error ? <div className="error-banner">{error}</div> : null}
@@ -523,4 +563,29 @@ function buildStatuses(healthQuery: UseQueryResult<HealthResponse>): StatusDescr
       description: healthQuery.data.openai.error,
     },
   ];
+}
+
+function extractUsageSummary(value: any): UsageSummary | null {
+  if (!value) {
+    return null;
+  }
+  const totals = value.totals ?? value;
+  const promptTokens = Number(totals.promptTokens ?? 0);
+  const completionTokens = Number(totals.completionTokens ?? 0);
+  const totalTokens = Number(
+    totals.totalTokens ?? totals.total_tokens ?? promptTokens + completionTokens,
+  );
+  const costUsd = Number(totals.costUsd ?? totals.cost_usd ?? 0);
+
+  if (
+    [promptTokens, completionTokens, totalTokens, costUsd].every((num) => Number.isFinite(num))
+  ) {
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      costUsd,
+    };
+  }
+  return null;
 }

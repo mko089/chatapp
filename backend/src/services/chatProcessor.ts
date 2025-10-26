@@ -4,6 +4,7 @@ import type OpenAI from 'openai';
 import { MCPManager, type NamespacedToolDefinition } from '../mcp/manager.js';
 import type { ChatRequestPayload, IncomingChatMessage, ToolCallResult, AssistantMessage } from '../types/chat.js';
 import { saveSession } from '../storage/sessionStore.js';
+import { getSessionTotals, recordUsage } from '../metrics/costTracker.js';
 import type { SessionRecord, StoredChatMessage, StoredToolInvocation } from '../storage/sessionStore.js';
 
 interface Logger {
@@ -28,6 +29,7 @@ export type ChatProcessOutcome =
       storedMessages: StoredChatMessage[];
       newToolResults: ToolCallResult[];
       combinedToolHistory: StoredToolInvocation[];
+      usageSummary: ReturnType<typeof getSessionTotals>;
     }
   | {
       kind: 'incomplete';
@@ -36,6 +38,7 @@ export type ChatProcessOutcome =
       storedMessages: StoredChatMessage[];
       newToolResults: ToolCallResult[];
       combinedToolHistory: StoredToolInvocation[];
+      usageSummary: ReturnType<typeof getSessionTotals>;
     };
 
 export async function processChatInteraction(options: ProcessChatOptions): Promise<ChatProcessOutcome> {
@@ -53,6 +56,8 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
       tools: toolDefs,
       tool_choice: 'auto',
     });
+
+    recordUsage(sessionId, response.usage);
 
     const choice = response.choices[0];
     const assistantMessage = choice?.message;
@@ -90,6 +95,7 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
         storedMessages,
         newToolResults: toolResults,
         combinedToolHistory,
+        usageSummary: getSessionTotals(sessionId),
       };
     }
 
@@ -162,6 +168,7 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
     storedMessages,
     newToolResults: toolResults,
     combinedToolHistory,
+    usageSummary: getSessionTotals(sessionId),
   };
 }
 

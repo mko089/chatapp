@@ -21,6 +21,12 @@ interface AppHeaderProps {
   showInlineTools: boolean;
   onToggleInlineTools: () => void;
   statuses: StatusInfo[];
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    costUsd: number;
+  } | null;
 }
 
 export function AppHeader(props: AppHeaderProps) {
@@ -39,6 +45,7 @@ export function AppHeader(props: AppHeaderProps) {
     showInlineTools,
     onToggleInlineTools,
     statuses,
+    usage,
   } = props;
 
   const statusText = isBusy || isRestoring ? 'Przetwarzanie…' : toolsLoading ? 'Ładowanie narzędzi…' : 'Gotowy';
@@ -80,6 +87,12 @@ export function AppHeader(props: AppHeaderProps) {
         {statuses.map((status) => (
           <StatusBadge key={status.label} label={status.label} status={status.status} description={status.description} />
         ))}
+        {usage ? (
+          <div className="usage-chip" title={`Zużyte tokeny: ${usage.totalTokens.toLocaleString('pl-PL')}`}>
+            <span>Koszt: ${usage.costUsd.toFixed(4)}</span>
+            <span>{usage.totalTokens.toLocaleString('pl-PL')} tok.</span>
+          </div>
+        ) : null}
       </div>
     </header>
   );

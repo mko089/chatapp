@@ -24,6 +24,23 @@ const ConfigSchema = z.object({
     .optional()
     .default(process.env.MCP_CONFIG ?? path.resolve('backend/mcp.config.json')),
   allowedIps: z.array(z.string().min(1)).default(allowedIpsFromEnv.length ? allowedIpsFromEnv : ['192.168.2.145']),
+  chatMaxIterations: z
+    .coerce.number()
+    .int()
+    .positive()
+    .max(12)
+    .optional()
+    .default(process.env.CHAT_MAX_ITERATIONS ? Number.parseInt(process.env.CHAT_MAX_ITERATIONS, 10) : 6),
+  promptTokenCostUsd: z
+    .coerce.number()
+    .nonnegative()
+    .optional()
+    .default(process.env.PROMPT_TOKEN_COST_USD ? Number.parseFloat(process.env.PROMPT_TOKEN_COST_USD) : 0.0),
+  completionTokenCostUsd: z
+    .coerce.number()
+    .nonnegative()
+    .optional()
+    .default(process.env.COMPLETION_TOKEN_COST_USD ? Number.parseFloat(process.env.COMPLETION_TOKEN_COST_USD) : 0.0),
 });
 
 const parsed = ConfigSchema.parse({
@@ -35,6 +52,9 @@ const parsed = ConfigSchema.parse({
   requestTimeoutMs: process.env.REQUEST_TIMEOUT_MS,
   mcpConfigPath: process.env.MCP_CONFIG,
   allowedIps: allowedIpsFromEnv,
+  chatMaxIterations: process.env.CHAT_MAX_ITERATIONS,
+  promptTokenCostUsd: process.env.PROMPT_TOKEN_COST_USD,
+  completionTokenCostUsd: process.env.COMPLETION_TOKEN_COST_USD,
 });
 
 export type AppConfig = typeof parsed;

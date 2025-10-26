@@ -8,6 +8,7 @@ import { registerMcpRoutes } from './routes/mcp.js';
 import { registerChatRoutes } from './routes/chat.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerSessionRoutes } from './routes/sessions.js';
+import { registerMetricsRoutes } from './routes/metrics.js';
 
 async function bootstrap() {
   if (!config.openAiApiKey) {
@@ -37,6 +38,7 @@ async function bootstrap() {
   await registerChatRoutes(app as any, { mcpManager, openAi });
   await registerHealthRoute(app as any, { mcpManager, openAi });
   await registerSessionRoutes(app as any);
+  await registerMetricsRoutes(app as any);
 
   app.addHook('onClose', async () => {
     await mcpManager.shutdown();
