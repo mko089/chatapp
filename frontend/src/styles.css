@@ -71,6 +71,22 @@ html {
   margin-left: 4px;
 }
 
+.model-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.model-select-wrapper select {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  color: #e2e8f0;
+  padding: 4px 8px;
+}
+
 .font-controls button {
   border: none;
   background: rgba(59, 130, 246, 0.18);

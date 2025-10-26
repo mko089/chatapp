@@ -27,6 +27,9 @@ interface AppHeaderProps {
     totalTokens: number;
     costUsd: number;
   } | null;
+  models: string[];
+  selectedModel: string;
+  onSelectModel: (model: string) => void;
 }
 
 export function AppHeader(props: AppHeaderProps) {
@@ -46,6 +49,9 @@ export function AppHeader(props: AppHeaderProps) {
     onToggleInlineTools,
     statuses,
     usage,
+    models,
+    selectedModel,
+    onSelectModel,
   } = props;
 
   const statusText = isBusy || isRestoring ? 'Przetwarzanie…' : toolsLoading ? 'Ładowanie narzędzi…' : 'Gotowy';
@@ -63,6 +69,16 @@ export function AppHeader(props: AppHeaderProps) {
           </button>
         </div>
         <div className="font-controls" aria-label="Regulacja wielkości tekstu">
+          <label className="model-select-wrapper" title="Wybierz model LLM">
+            <span>Model</span>
+            <select value={selectedModel} onChange={(event) => onSelectModel(event.target.value)}>
+              {models.map((model) => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" onClick={onDecreaseFont} title="Zmniejsz tekst" aria-label="Zmniejsz tekst">
             A-
           </button>

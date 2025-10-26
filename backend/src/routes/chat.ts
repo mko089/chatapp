@@ -20,6 +20,7 @@ const ChatRequestSchema = z.object({
   messages: z.array(ChatMessageSchema).min(1),
   maxIterations: z.number().int().positive().max(12).optional(),
   sessionId: z.string().min(1).optional(),
+  model: z.string().optional(),
 });
 
 interface RegisterChatRoutesOptions {
@@ -37,12 +38,18 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       return { error: 'Invalid request', details: body.error.issues };
     }
 
-    const rawPayload = body.data as ChatRequestPayload & { maxIterations?: number };
+    const rawPayload = body.data as ChatRequestPayload & { maxIterations?: number; model?: string };
     const normalizedPayload: ChatRequestPayload & { maxIterations: number } = {
       ...rawPayload,
       maxIterations: rawPayload.maxIterations ?? config.chatMaxIterations,
     };
     const sessionId = normalizedPayload.sessionId ?? randomUUID();
+
+    const selectedModel = rawPayload.model ?? config.llmModel;
+    if (!config.llmAllowedModels.includes(selectedModel)) {
+      reply.status(400);
+      return { error: `Model ${selectedModel} is not allowed` };
+    }
     const existingSession = await loadSession(sessionId);
     const result = await processChatInteraction({
       payload: normalizedPayload,
@@ -50,7 +57,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       existingSession,
       mcpManager,
       openAi,
-      model: config.llmModel,
+      model: selectedModel,
       logger: request.log,
     });
 
@@ -62,6 +69,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
         messages: result.storedMessages,
         toolHistory: result.combinedToolHistory,
         usage: result.usageSummary,
+        model: selectedModel,
       };
     }
 
@@ -73,6 +81,7 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       messages: result.storedMessages,
       toolHistory: result.combinedToolHistory,
       usage: result.usageSummary,
+      model: selectedModel,
     };
   });
 }

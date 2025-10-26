@@ -17,7 +17,7 @@ const systemMessage: ChatMessage = {
 type HealthResponse = {
   backend: 'ok';
   mcp: { status: 'ok' | 'error' | 'unknown'; error?: string };
-  openai: { status: 'ok' | 'error' | 'unknown'; error?: string; model: string };
+  openai: { status: 'ok' | 'error' | 'unknown'; error?: string; model: string; allowedModels: string[] };
 };
 
 type UsageSummary = {
@@ -85,6 +85,8 @@ function AppContent() {
     serialize: (value) => (value ? 'true' : 'false'),
   });
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModel, setSelectedModel] = usePersistentState<string>('chat-selected-model', '');
 
   const refreshUsage = useCallback(
     async (id: string) => {
@@ -103,6 +105,16 @@ function AppContent() {
     },
     [baseUrl],
   );
+
+  useEffect(() => {
+    const models = healthQuery.data?.openai.allowedModels ?? [];
+    if (models.length > 0) {
+      setAvailableModels(models);
+      if (!models.includes(selectedModel)) {
+        setSelectedModel(models[0]);
+      }
+    }
+  }, [healthQuery.data?.openai.allowedModels, selectedModel, setSelectedModel]);
 
   const formatArgs = (args: unknown) => {
     if (args === undefined || args === null) {
@@ -338,6 +350,7 @@ function AppContent() {
     const payload = {
       sessionId: resolvedSessionId,
       messages: [systemMessage, contextMessage, ...history, userMessage],
+      model: selectedModel || undefined,
     };
 
     try {
@@ -418,6 +431,9 @@ function AppContent() {
         onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
         statuses={buildStatuses(healthQuery)}
         usage={usageSummary}
+        models={availableModels.length > 0 ? availableModels : [selectedModel || healthQuery.data?.openai.model || 'gpt-4.1']}
+        selectedModel={selectedModel || availableModels[0] || healthQuery.data?.openai.model || 'gpt-4.1'}
+        onSelectModel={setSelectedModel}
       />
 
       {error ? <div className="error-banner">{error}</div> : null}

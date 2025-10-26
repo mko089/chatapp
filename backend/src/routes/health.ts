@@ -15,7 +15,12 @@ export async function registerHealthRoute(app: FastifyInstance<any>, options: Re
     const health = {
       backend: 'ok' as const,
       mcp: { status: 'unknown' as 'ok' | 'error' | 'unknown', error: undefined as string | undefined },
-      openai: { status: 'unknown' as 'ok' | 'error' | 'unknown', error: undefined as string | undefined, model: config.llmModel },
+      openai: {
+        status: 'unknown' as 'ok' | 'error' | 'unknown',
+        error: undefined as string | undefined,
+        model: config.llmModel,
+        allowedModels: config.llmAllowedModels,
+      },
     };
 
     try {
@@ -37,4 +42,3 @@ export async function registerHealthRoute(app: FastifyInstance<any>, options: Re
     return health;
   });
 }
-

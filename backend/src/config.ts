@@ -9,6 +9,11 @@ const allowedIpsFromEnv = (process.env.ALLOWED_IPS ?? '192.168.2.145,192.168.4.1
   .map((ip) => ip.trim())
   .filter((ip) => ip.length > 0);
 
+const llmModelsFromEnv = (process.env.LLM_MODELS ?? '')
+  .split(',')
+  .map((model) => model.trim())
+  .filter((model) => model.length > 0);
+
 const ConfigSchema = z.object({
   nodeEnv: z.string().optional().default(process.env.NODE_ENV ?? 'development'),
   port: z.coerce.number().int().positive().default(4025),
@@ -41,6 +46,7 @@ const ConfigSchema = z.object({
     .nonnegative()
     .optional()
     .default(process.env.COMPLETION_TOKEN_COST_USD ? Number.parseFloat(process.env.COMPLETION_TOKEN_COST_USD) : 0.0),
+  llmAllowedModels: z.array(z.string().min(1)).default(llmModelsFromEnv.length ? llmModelsFromEnv : [process.env.LLM_MODEL ?? 'gpt-4.1']),
 });
 
 const parsed = ConfigSchema.parse({
@@ -55,6 +61,7 @@ const parsed = ConfigSchema.parse({
   chatMaxIterations: process.env.CHAT_MAX_ITERATIONS,
   promptTokenCostUsd: process.env.PROMPT_TOKEN_COST_USD,
   completionTokenCostUsd: process.env.COMPLETION_TOKEN_COST_USD,
+  llmAllowedModels: llmModelsFromEnv,
 });
 
 export type AppConfig = typeof parsed;
