@@ -139,6 +139,13 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
 
     reply.code(200);
     reply.header('Content-Type', 'application/x-ndjson');
+    // CORS headers (manual, because we stream and bypass onSend hooks)
+    const reqOrigin = (request.headers as any)?.origin as string | undefined;
+    reply.header('Access-Control-Allow-Origin', reqOrigin || '*');
+    reply.header('Vary', 'Origin');
+    reply.header('Access-Control-Expose-Headers', 'x-budget-warning');
+    reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    reply.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
     // Flush headers so the client starts reading
     // @ts-ignore
     reply.raw.flushHeaders?.();
