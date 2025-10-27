@@ -23,6 +23,13 @@ async function bootstrap() {
   await app.register(cors, { origin: true });
 
   app.addHook('onRequest', async (request, reply) => {
+    // Allow CORS preflight and allowlist wildcard
+    if (request.method?.toUpperCase() === 'OPTIONS') {
+      return;
+    }
+    if (config.allowedIps.includes('*')) {
+      return;
+    }
     const headerIp = (request.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
     const rawIp = headerIp || request.ip;
     const normalizedIp = rawIp?.startsWith('::ffff:') ? rawIp.slice(7) : rawIp;

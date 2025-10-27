@@ -210,6 +210,10 @@ export function buildAuthHook(): OnRequestHook {
   }
 
   return async function authHook(request: FastifyRequest, reply: FastifyReply) {
+    // Skip auth for CORS preflight
+    if (request.method?.toUpperCase() === 'OPTIONS') {
+      return;
+    }
     const rawPath = request.raw.url ? request.raw.url.split('?')[0] : '';
     if (isPublicPath(rawPath, request.method)) {
       return;
