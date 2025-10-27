@@ -20,7 +20,12 @@ async function bootstrap() {
   }
 
   const app = Fastify({ logger: logger as any });
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type'],
+    exposedHeaders: ['x-budget-warning'],
+  });
 
   app.addHook('onRequest', async (request, reply) => {
     // Allow CORS preflight and allowlist wildcard

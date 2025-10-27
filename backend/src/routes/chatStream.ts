@@ -90,6 +90,17 @@ function toToolDefinition(tool: NamespacedToolDefinition) {
 export async function registerChatStreamRoutes(app: FastifyInstance<any>, options: { mcpManager: MCPManager; openAi: OpenAI }) {
   const { mcpManager, openAi } = options;
 
+  // Explicit preflight handler for CORS
+  app.options('/chat/stream', async (request, reply) => {
+    const reqOrigin = (request.headers as any)?.origin as string | undefined;
+    reply.header('Access-Control-Allow-Origin', reqOrigin || '*');
+    reply.header('Vary', 'Origin');
+    reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    reply.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    reply.header('Access-Control-Max-Age', '86400');
+    reply.code(204).send();
+  });
+
   app.post('/chat/stream', async (request, reply) => {
     const parsed = ChatRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -98,6 +109,14 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
     }
 
     const payload = parsed.data as ChatRequestPayload & { maxIterations?: number; model?: string };
+
+    // Set CORS headers early (streamed response bypasses some hooks)
+    const reqOrigin = (request.headers as any)?.origin as string | undefined;
+    reply.header('Access-Control-Allow-Origin', reqOrigin || '*');
+    reply.header('Vary', 'Origin');
+    reply.header('Access-Control-Expose-Headers', 'x-budget-warning');
+    reply.header('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    reply.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
     const sessionId = payload.sessionId ?? randomUUID();
     const maxIterations = payload.maxIterations ?? config.chatMaxIterations;
     const model = payload.model ?? config.llmModel;
