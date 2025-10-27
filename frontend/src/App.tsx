@@ -18,6 +18,7 @@ import type {
 } from './types';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { useAuthorizedFetch } from './hooks/useAuthorizedFetch';
+import { useChatStream } from './hooks/useChatStream';
 
 const queryClient = new QueryClient();
 const systemMessage: ChatMessage = {
@@ -104,6 +105,7 @@ function formatStructuredValue(value: unknown, space = 2, fallback = 'null'): st
 function AppContent() {
   const auth = useAuth();
   const authorizedFetch = useAuthorizedFetch();
+  const chatStream = useChatStream();
   const authReady = !auth.enabled || (auth.ready && auth.isAuthenticated);
   const authLoading = auth.enabled && !auth.ready;
   const requiresLogin = auth.enabled && auth.ready && !auth.isAuthenticated;
@@ -762,66 +764,119 @@ function AppContent() {
     };
 
     try {
-      const response = await authorizedFetch(`${baseUrl}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const bodyText = await response.text();
-        try {
-          const parsed = JSON.parse(bodyText);
-          if (parsed?.budgets) {
-            setBudgetEvaluation(parsed.budgets as BudgetEvaluation);
-          }
-          const message = parsed?.error ?? bodyText ?? `Błąd ${response.status}`;
-          throw new Error(message);
-        } catch (err) {
-          if (bodyText) {
-            throw new Error(bodyText);
-          }
-          throw new Error(`Błąd ${response.status}`);
+      const streamingEnabled = ((import.meta as any)?.env?.VITE_CHAT_STREAMING ?? 'true').toString() !== 'false';
+      if (streamingEnabled) {
+        const assistantIndex = pendingMessages.length; // position to append deltas
+        let assistantAccum = '';
+        await chatStream(
+          `${baseUrl}/chat/stream`,
+          payload,
+          {
+            onAssistantDelta: (text) => {
+              assistantAccum += text;
+              const assistantMsg: ChatMessage = { role: 'assistant', content: assistantAccum };
+              setPendingMessages((prev) => {
+                const base = prev.filter((m) => m !== userMessage);
+                const withUser = [...base, userMessage];
+                // Replace or append assistant
+                return [...withUser.slice(0, assistantIndex + 1), assistantMsg];
+              });
+            },
+            onAssistantDone: (content, ms) => {
+              const assistantMsg: ChatMessage = { role: 'assistant', content, metadata: ms ? { llmDurationMs: ms } : undefined };
+              setPendingMessages((prev) => [...prev.filter((m) => m !== userMessage), userMessage, assistantMsg]);
+            },
+            onToolStarted: (id, name, args) => {
+              const rec: ToolInvocation = { name, args, result: { status: 'running' }, timestamp: new Date().toISOString() };
+              setToolResults((prev) => [...prev, rec]);
+            },
+            onToolCompleted: (id, name, result) => {
+              setToolResults((prev) => [...prev, { name, args: {}, result, timestamp: new Date().toISOString() }]);
+            },
+            onBudgetWarning: (details) => {
+              setBudgetWarning(true);
+            },
+            onBudgetBlocked: (details) => {
+              setBudgetWarning(true);
+              setError('Przekroczono limit budżetu');
+            },
+            onFinal: (sid, messages, historyItems) => {
+              const newSessionId = sid || resolvedSessionId;
+              if (newSessionId !== sessionId) {
+                setSessionId(newSessionId);
+                const params = new URLSearchParams(window.location.search);
+                params.set('session', newSessionId);
+                window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+              }
+              const combined = [...toolResults, ...historyItems];
+              // Prefer server messages when provided
+              const serverMessages: ChatMessage[] = Array.isArray(messages) ? (messages as ChatMessage[]) : [];
+              if (serverMessages.length > 0) {
+                syncConversationState(serverMessages, combined);
+              } else {
+                // Fallback: commit pending buffer
+                if (assistantAccum) {
+                  syncConversationState([...history, userMessage, { role: 'assistant', content: assistantAccum }], combined);
+                } else {
+                  syncConversationState([...history, userMessage], combined);
+                }
+              }
+              setPendingMessages([]);
+              void refreshUsage(newSessionId);
+              void refreshSessionList({ silent: true });
+            },
+            onError: (message) => {
+              setError(message);
+            },
+          },
+        );
+      } else {
+        // Fallback to legacy non-streaming endpoint
+        const response = await authorizedFetch(`${baseUrl}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const bodyText = await response.text();
+          throw new Error(bodyText || `Błąd ${response.status}`);
         }
+        const data = await response.json();
+        if (data?.budgets?.after) {
+          setBudgetEvaluation(data.budgets.after as BudgetEvaluation);
+        } else if (data?.budgets?.before) {
+          setBudgetEvaluation(data.budgets.before as BudgetEvaluation);
+        }
+        const assistantMessage: ChatMessage | undefined = data?.message;
+        const newSessionId: string = data?.sessionId ?? resolvedSessionId;
+        if (newSessionId !== sessionId) {
+          setSessionId(newSessionId);
+          const params = new URLSearchParams(window.location.search);
+          params.set('session', newSessionId);
+          window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
+        }
+        const combinedToolHistory: ToolInvocation[] = Array.isArray(data?.toolHistory)
+          ? data.toolHistory
+          : Array.isArray(data?.toolResults)
+            ? [...toolResults, ...data.toolResults]
+            : toolResults;
+        const serverMessages: ChatMessage[] | undefined = data?.messages;
+        if (serverMessages && serverMessages.length > 0) {
+          syncConversationState(serverMessages, combinedToolHistory);
+        } else if (assistantMessage) {
+          syncConversationState([...history, userMessage, assistantMessage], combinedToolHistory);
+        } else {
+          syncConversationState([...history, userMessage], combinedToolHistory);
+        }
+        setPendingMessages((prev) => prev.slice(prev.findIndex((msg) => msg === userMessage) + 1));
+        const normalizedUsage = extractUsageSummary(data?.usage);
+        if (normalizedUsage) {
+          setUsageSummary(normalizedUsage);
+        } else {
+          void refreshUsage(newSessionId);
+        }
+        void refreshSessionList({ silent: true });
       }
-
-      const data = await response.json();
-      if (data?.budgets?.after) {
-        setBudgetEvaluation(data.budgets.after as BudgetEvaluation);
-      } else if (data?.budgets?.before) {
-        setBudgetEvaluation(data.budgets.before as BudgetEvaluation);
-      }
-      const assistantMessage: ChatMessage | undefined = data?.message;
-      const newSessionId: string = data?.sessionId ?? resolvedSessionId;
-      if (newSessionId !== sessionId) {
-        setSessionId(newSessionId);
-        const params = new URLSearchParams(window.location.search);
-        params.set('session', newSessionId);
-        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
-      }
-
-      const combinedToolHistory: ToolInvocation[] = Array.isArray(data?.toolHistory)
-        ? data.toolHistory
-        : Array.isArray(data?.toolResults)
-          ? [...toolResults, ...data.toolResults]
-          : toolResults;
-
-      const serverMessages: ChatMessage[] | undefined = data?.messages;
-      if (serverMessages && serverMessages.length > 0) {
-        syncConversationState(serverMessages, combinedToolHistory);
-      } else if (assistantMessage) {
-        syncConversationState([...history, userMessage, assistantMessage], combinedToolHistory);
-      } else {
-        syncConversationState([...history, userMessage], combinedToolHistory);
-      }
-      setPendingMessages((prev) => prev.slice(prev.findIndex((msg) => msg === userMessage) + 1));
-      const normalizedUsage = extractUsageSummary(data?.usage);
-      if (normalizedUsage) {
-        setUsageSummary(normalizedUsage);
-      } else {
-        void refreshUsage(newSessionId);
-      }
-      void refreshSessionList({ silent: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Nieznany błąd';
       setError(message);

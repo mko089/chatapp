@@ -6,6 +6,7 @@ import logger from './logger.js';
 import { MCPManager } from './mcp/manager.js';
 import { registerMcpRoutes } from './routes/mcp.js';
 import { registerChatRoutes } from './routes/chat.js';
+import { registerChatStreamRoutes } from './routes/chatStream.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerMetricsRoutes } from './routes/metrics.js';
@@ -48,6 +49,7 @@ async function bootstrap() {
 
   await registerMcpRoutes(app as any, { mcpManager });
   await registerChatRoutes(app as any, { mcpManager, openAi });
+  await registerChatStreamRoutes(app as any, { mcpManager, openAi });
   await registerHealthRoute(app as any, { mcpManager, openAi });
   await registerSessionRoutes(app as any);
   await registerMetricsRoutes(app as any);
