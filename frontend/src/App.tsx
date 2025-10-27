@@ -951,6 +951,14 @@ function AppContent() {
         onDecreaseFont={() => adjustFont(-0.1)}
         onIncreaseFont={() => adjustFont(0.1)}
         onResetFont={resetFont}
+        onCancelStream={() => {
+          const ctrl = streamAbortRef.current;
+          if (ctrl) {
+            ctrl.abort();
+            setError('Anulowano.');
+            setIsBusy(false);
+          }
+        }}
         showInlineTools={showInlineTools}
         onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
         statuses={buildStatuses(healthQuery)}

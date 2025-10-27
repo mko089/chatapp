@@ -196,6 +196,18 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
         if (assistantBuffer) {
           writeNdjson(reply, { type: 'assistant.done', content: assistantBuffer, llmDurationMs: durationMs });
           conversation.push({ role: 'assistant', content: assistantBuffer });
+          // checkpoint: persist messages so far (tool history appended later)
+          try {
+            await saveSession({
+              id: sessionId,
+              messages: payload.messages
+                .filter((m) => m.role !== 'system' && m.role !== 'tool')
+                .map((m) => ({ role: m.role, content: m.content ?? '', timestamp: m.timestamp ?? new Date().toISOString() })),
+              toolResults: toolHistory,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+          } catch {}
         }
 
         if (aborted) break;
@@ -227,11 +239,34 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
               writeNdjson(reply, { type: 'tool.completed', id: call.id, name: toolName, result });
               conversation.push({ role: 'tool', content: JSON.stringify(result ?? null), tool_call_id: call.id });
               toolHistory.push({ name: toolName, args: parsedArgs, result, timestamp: new Date().toISOString() });
+              // checkpoint: persist after each tool
+              try {
+                await saveSession({
+                  id: sessionId,
+                  messages: payload.messages
+                    .filter((m) => m.role !== 'system' && m.role !== 'tool')
+                    .map((m) => ({ role: m.role, content: m.content ?? '', timestamp: m.timestamp ?? new Date().toISOString() })),
+                  toolResults: toolHistory,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                });
+              } catch {}
             } catch (error) {
               const errPayload = { error: (error as Error).message };
               writeNdjson(reply, { type: 'tool.completed', id: call.id, name: toolName, result: errPayload });
               conversation.push({ role: 'tool', content: JSON.stringify(errPayload), tool_call_id: call.id });
               toolHistory.push({ name: toolName, args: parsedArgs, result: errPayload, timestamp: new Date().toISOString() });
+              try {
+                await saveSession({
+                  id: sessionId,
+                  messages: payload.messages
+                    .filter((m) => m.role !== 'system' && m.role !== 'tool')
+                    .map((m) => ({ role: m.role, content: m.content ?? '', timestamp: m.timestamp ?? new Date().toISOString() })),
+                  toolResults: toolHistory,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                });
+              } catch {}
             }
           }
           // Continue loop for next iteration
@@ -265,4 +300,3 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
     }
   });
 }
-

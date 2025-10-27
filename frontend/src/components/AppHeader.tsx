@@ -41,6 +41,7 @@ interface AppHeaderProps {
   roles?: string[];
   onLogin: () => void;
   onLogout: () => void;
+  onCancelStream?: () => void;
   canManageBudgets: boolean;
   budgetWarning: boolean;
 }
@@ -76,6 +77,7 @@ export function AppHeader(props: AppHeaderProps) {
     roles,
     onLogin,
     onLogout,
+    onCancelStream,
     canManageBudgets,
     budgetWarning,
   } = props;
@@ -130,6 +132,11 @@ export function AppHeader(props: AppHeaderProps) {
       <div className="app-header-left">
         <h1>Chat MCP</h1>
         <div className="header-buttons">
+          {onCancelStream ? (
+            <button type="button" className="history-button" onClick={onCancelStream} title="Anuluj generowanie">
+              Anuluj
+            </button>
+          ) : null}
           <button type="button" className="history-button" onClick={onOpenHistory} disabled={!canOpenHistory}>
             Historia narzędzi
           </button>
