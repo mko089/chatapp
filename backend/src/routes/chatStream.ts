@@ -143,6 +143,15 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
     // @ts-ignore
     reply.raw.flushHeaders?.();
 
+    // keep-alive ping
+    const pingInterval = setInterval(() => {
+      if (reply.raw.writableEnded) {
+        clearInterval(pingInterval);
+        return;
+      }
+      writeNdjson(reply, { type: 'assistant.delta', text: '' });
+    }, 20000);
+
     const conversation = buildInitialConversation(payload.messages);
     const toolHistory: any[] = [];
     let aborted = false;
@@ -294,6 +303,7 @@ export async function registerChatStreamRoutes(app: FastifyInstance<any>, option
     } catch (error) {
       writeNdjson(reply, { type: 'error', message: (error as Error).message });
     } finally {
+      try { clearInterval(pingInterval); } catch {}
       try {
         reply.raw.end();
       } catch {}
