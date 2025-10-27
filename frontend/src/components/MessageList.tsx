@@ -79,14 +79,16 @@ export function MessageList({
         }
 
         const timestampLabel = formatTimestampLabel(message.timestamp);
+        const thinkingLabel = formatThinkingDuration(message.metadata?.llmDurationMs);
+        const metaParts = [timestampLabel, thinkingLabel].filter(Boolean) as string[];
 
         nodes.push(
           <div key={`msg-${idx}`} className={`message ${message.role}`}>
             <div className="message-body">
               {message.role === 'tool' ? <pre>{message.content}</pre> : message.content}
             </div>
-            {timestampLabel ? (
-              <div className={`message-meta message-meta-${message.role}`}>{timestampLabel}</div>
+            {metaParts.length > 0 ? (
+              <div className={`message-meta message-meta-${message.role}`}>{metaParts.join(' • ')}</div>
             ) : null}
           </div>
         );
@@ -168,4 +170,18 @@ function formatTimestampLabel(timestamp?: string): string | null {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+}
+
+function formatThinkingDuration(durationMs?: number): string | null {
+  if (durationMs === undefined) {
+    return null;
+  }
+  const numeric = Number(durationMs);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+  if (numeric < 1000) {
+    return `Myślenie: ${Math.round(numeric)} ms`;
+  }
+  return `Myślenie: ${(numeric / 1000).toFixed(numeric >= 10_000 ? 0 : 1)} s`;
 }

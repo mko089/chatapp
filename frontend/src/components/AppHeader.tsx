@@ -12,6 +12,8 @@ interface AppHeaderProps {
   toolsLoading: boolean;
   canOpenHistory: boolean;
   onOpenHistory: () => void;
+  onOpenSessions: () => void;
+  onOpenBudgets: () => void;
   isToolsOpen: boolean;
   onToggleTools: () => void;
   fontScaleLabel: string;
@@ -30,6 +32,17 @@ interface AppHeaderProps {
   models: string[];
   selectedModel: string;
   onSelectModel: (model: string) => void;
+  authEnabled: boolean;
+  authLoading: boolean;
+  isAuthenticated: boolean;
+  userLabel?: string;
+  userTooltip?: string;
+  accountId?: string;
+  roles?: string[];
+  onLogin: () => void;
+  onLogout: () => void;
+  canManageBudgets: boolean;
+  budgetWarning: boolean;
 }
 
 export function AppHeader(props: AppHeaderProps) {
@@ -39,6 +52,8 @@ export function AppHeader(props: AppHeaderProps) {
     toolsLoading,
     canOpenHistory,
     onOpenHistory,
+    onOpenSessions,
+    onOpenBudgets,
     isToolsOpen,
     onToggleTools,
     fontScaleLabel,
@@ -52,9 +67,63 @@ export function AppHeader(props: AppHeaderProps) {
     models,
     selectedModel,
     onSelectModel,
+    authEnabled,
+    authLoading,
+    isAuthenticated,
+    userLabel,
+    userTooltip,
+    accountId,
+    roles,
+    onLogin,
+    onLogout,
+    canManageBudgets,
+    budgetWarning,
   } = props;
 
   const statusText = isBusy || isRestoring ? 'Przetwarzanie…' : toolsLoading ? 'Ładowanie narzędzi…' : 'Gotowy';
+  const visibleRoles = (roles ?? []).filter((role) => role.trim().length > 0);
+
+  const authControls = (() => {
+    if (!authEnabled) {
+      return null;
+    }
+
+    if (authLoading) {
+      return <span className="auth-chip">Logowanie…</span>;
+    }
+
+    if (isAuthenticated) {
+      return (
+        <div className="auth-user-wrapper">
+          <span className="auth-user" title={userTooltip && userTooltip.length > 0 ? userTooltip : undefined}>
+            {userLabel && userLabel.length > 0 ? userLabel : 'Zalogowany użytkownik'}
+            {accountId ? <span className="auth-account"> • {accountId}</span> : null}
+          </span>
+          {visibleRoles.length > 0 ? (
+            <div className="auth-roles" title={`Role: ${visibleRoles.join(', ')}`}>
+              {visibleRoles.slice(0, 3).map((role) => (
+                <span key={role} className="auth-role-chip">
+                  {role}
+                </span>
+              ))}
+              {visibleRoles.length > 3 ? (
+                <span className="auth-role-chip">+{visibleRoles.length - 3}</span>
+              ) : null}
+            </div>
+          ) : null}
+          <button type="button" className="auth-action" onClick={onLogout}>
+            Wyloguj
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <button type="button" className="auth-action" onClick={onLogin}>
+        Zaloguj
+      </button>
+    );
+  })();
 
   return (
     <header className="app-header">
@@ -64,6 +133,14 @@ export function AppHeader(props: AppHeaderProps) {
           <button type="button" className="history-button" onClick={onOpenHistory} disabled={!canOpenHistory}>
             Historia narzędzi
           </button>
+          <button type="button" className="history-button" onClick={onOpenSessions}>
+            Sesje
+          </button>
+          {canManageBudgets ? (
+            <button type="button" className={`history-button${budgetWarning ? ' history-button-warning' : ''}`} onClick={onOpenBudgets}>
+              Budżety
+            </button>
+          ) : null}
           <button type="button" className="history-button" onClick={onToggleTools}>
             {isToolsOpen ? 'Ukryj narzędzia' : 'Pokaż narzędzia'}
           </button>
@@ -100,6 +177,7 @@ export function AppHeader(props: AppHeaderProps) {
       </div>
       <div className="status-row">
         <div className="status">{statusText}</div>
+        {authEnabled ? <div className="auth-controls">{authControls}</div> : null}
         {statuses.map((status) => (
           <StatusBadge key={status.label} label={status.label} status={status.status} description={status.description} />
         ))}

@@ -2,10 +2,24 @@ import type { ChatCompletionAssistantMessageParam, ChatCompletionMessageParam, C
 import type { FunctionParameters } from 'openai/resources/shared';
 import type OpenAI from 'openai';
 import { MCPManager, type NamespacedToolDefinition } from '../mcp/manager.js';
-import type { ChatRequestPayload, IncomingChatMessage, ToolCallResult, AssistantMessage } from '../types/chat.js';
+import type {
+  ChatRequestPayload,
+  IncomingChatMessage,
+  ToolCallResult,
+  AssistantMessage,
+  ChatMessageMetadata,
+} from '../types/chat.js';
 import { saveSession } from '../storage/sessionStore.js';
 import { getSessionTotals, recordUsage } from '../metrics/costTracker.js';
 import type { SessionRecord, StoredChatMessage, StoredToolInvocation } from '../storage/sessionStore.js';
+import {
+  filterToolsByPermissions,
+  isToolAllowed,
+  type EffectivePermissions,
+} from '../rbac/index.js';
+import { recordUsageEvent } from './usageService.js';
+import type { AuthContext } from '../auth/context.js';
+import { evaluateBudgetsForContext, type BudgetEvaluationResult } from './budgetEvaluator.js';
 
 interface Logger {
   error: (obj: unknown, msg?: string) => void;
@@ -18,6 +32,9 @@ interface ProcessChatOptions {
   mcpManager: MCPManager;
   openAi: OpenAI;
   model: string;
+  permissions: EffectivePermissions;
+  authContext?: AuthContext;
+  initialBudgetEvaluation: BudgetEvaluationResult;
   logger: Logger;
 }
 
@@ -30,6 +47,11 @@ export type ChatProcessOutcome =
       newToolResults: ToolCallResult[];
       combinedToolHistory: StoredToolInvocation[];
       usageSummary: ReturnType<typeof getSessionTotals>;
+      llmDurationMs: number;
+      budgets: {
+        before: BudgetEvaluationResult;
+        after: BudgetEvaluationResult;
+      };
     }
   | {
       kind: 'incomplete';
@@ -39,25 +61,72 @@ export type ChatProcessOutcome =
       newToolResults: ToolCallResult[];
       combinedToolHistory: StoredToolInvocation[];
       usageSummary: ReturnType<typeof getSessionTotals>;
+      llmDurationMs: number;
+      budgets: {
+        before: BudgetEvaluationResult;
+        after: BudgetEvaluationResult;
+      };
     };
 
 export async function processChatInteraction(options: ProcessChatOptions): Promise<ChatProcessOutcome> {
-  const { payload, sessionId, existingSession, mcpManager, openAi, model, logger } = options;
+  const {
+    payload,
+    sessionId,
+    existingSession,
+    mcpManager,
+    openAi,
+    model,
+    permissions,
+    authContext,
+    initialBudgetEvaluation,
+    logger,
+  } = options;
 
-  const tools = await mcpManager.listTools();
-  const toolDefs = tools.map(toToolDefinition);
+  const rawTools = await mcpManager.listTools();
+  const allowedTools = filterToolsByPermissions(rawTools, permissions);
+  const allowedToolMap = new Map<string, NamespacedToolDefinition>(
+    allowedTools.map((tool) => [tool.name.toLowerCase(), tool]),
+  );
+  const toolDefs = allowedTools.map(toToolDefinition);
   const conversation = buildInitialConversation(payload.messages);
   const toolResults: ToolCallResult[] = [];
+  let totalLlmDurationMs = 0;
+  let lastCompletionDurationMs: number | undefined;
 
   for (let iteration = 0; iteration < payload.maxIterations; iteration += 1) {
+    const iterationStart = process.hrtime.bigint();
     const response = await openAi.chat.completions.create({
       model,
       messages: conversation,
       tools: toolDefs,
       tool_choice: 'auto',
     });
+    const iterationDurationMs = Number((process.hrtime.bigint() - iterationStart) / BigInt(1_000_000));
+    if (Number.isFinite(iterationDurationMs) && iterationDurationMs >= 0) {
+      totalLlmDurationMs += iterationDurationMs;
+      lastCompletionDurationMs = iterationDurationMs;
+    }
 
-    recordUsage(sessionId, response.usage, model);
+    const usageRecord = recordUsage(sessionId, response.usage, model);
+    if (usageRecord) {
+      try {
+        recordUsageEvent({
+          sessionId,
+          accountId: authContext?.accountId ?? null,
+          userId: authContext?.sub ?? null,
+          roles: authContext?.roles,
+          model,
+          promptTokens: usageRecord.promptTokens,
+          cachedPromptTokens: usageRecord.cachedPromptTokens,
+          completionTokens: usageRecord.completionTokens,
+          totalTokens: usageRecord.totalTokens,
+          costUsd: usageRecord.costUsd,
+          occurredAt: usageRecord.timestamp,
+        });
+      } catch (error) {
+        logger.error({ err: error }, 'Failed to persist usage event');
+      }
+    }
 
     const choice = response.choices[0];
     const assistantMessage = choice?.message;
@@ -73,13 +142,20 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
         content: assistantContent,
       });
 
-      const { storedMessages, assistantRecord } = prepareStoredMessages(payload.messages, assistantContent);
+      const assistantMetadata = lastCompletionDurationMs !== undefined ? { llmDurationMs: lastCompletionDurationMs } : undefined;
+      const { storedMessages, assistantRecord } = prepareStoredMessages(payload.messages, assistantContent, assistantMetadata);
       const combinedToolHistory = combineToolResults(existingSession?.toolResults ?? [], toolResults);
       await persistSession({
         existingSession,
         sessionId,
         messages: storedMessages,
         toolHistory: combinedToolHistory,
+      });
+
+      const updatedBudgets = await evaluateBudgetsForContext({
+        accountId: authContext?.accountId,
+        userId: authContext?.sub,
+        roles: authContext?.roles,
       });
 
       return {
@@ -90,12 +166,18 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
               role: 'assistant',
               content: assistantContent,
               timestamp: assistantRecord?.timestamp ?? new Date().toISOString(),
+              metadata: assistantRecord?.metadata,
             }
           : undefined,
         storedMessages,
         newToolResults: toolResults,
         combinedToolHistory,
         usageSummary: getSessionTotals(sessionId),
+        llmDurationMs: totalLlmDurationMs,
+        budgets: {
+          before: initialBudgetEvaluation,
+          after: updatedBudgets,
+        },
       };
     }
 
@@ -129,6 +211,22 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
         parsedArgs = {};
       }
 
+      const normalizedToolName = toolName.toLowerCase();
+      const toolDefinition = allowedToolMap.get(normalizedToolName);
+      if (!toolDefinition || !isToolAllowed(toolName, toolDefinition.serverId, permissions)) {
+        const errorPayload = {
+          error: `Tool ${toolName} is not permitted for your role`,
+          code: 'tool_not_permitted',
+        };
+        toolResults.push(createToolRecord(toolName, parsedArgs, errorPayload));
+        conversation.push({
+          role: 'tool',
+          content: JSON.stringify(errorPayload),
+          tool_call_id: call.id,
+        });
+        continue;
+      }
+
       try {
         const result = await mcpManager.callTool(toolName, parsedArgs);
         const record = createToolRecord(toolName, parsedArgs, result);
@@ -152,13 +250,24 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
     }
   }
 
-  const { storedMessages } = prepareStoredMessages(payload.messages, extractLastAssistant(conversation));
+  const assistantMetadata = lastCompletionDurationMs !== undefined ? { llmDurationMs: lastCompletionDurationMs } : undefined;
+  const { storedMessages } = prepareStoredMessages(
+    payload.messages,
+    extractLastAssistant(conversation),
+    assistantMetadata,
+  );
   const combinedToolHistory = combineToolResults(existingSession?.toolResults ?? [], toolResults);
   await persistSession({
     existingSession,
     sessionId,
     messages: storedMessages,
     toolHistory: combinedToolHistory,
+  });
+
+  const updatedBudgets = await evaluateBudgetsForContext({
+    accountId: authContext?.accountId,
+    userId: authContext?.sub,
+    roles: authContext?.roles,
   });
 
   return {
@@ -169,6 +278,11 @@ export async function processChatInteraction(options: ProcessChatOptions): Promi
     newToolResults: toolResults,
     combinedToolHistory,
     usageSummary: getSessionTotals(sessionId),
+    llmDurationMs: totalLlmDurationMs,
+    budgets: {
+      before: initialBudgetEvaluation,
+      after: updatedBudgets,
+    },
   };
 }
 
@@ -305,13 +419,16 @@ async function persistSession(options: {
 function prepareStoredMessages(
   messages: IncomingChatMessage[],
   assistantContent: string | null,
+  assistantMetadata?: ChatMessageMetadata,
 ): { storedMessages: StoredChatMessage[]; assistantRecord?: StoredChatMessage } {
+  const existingAssistantMetadata = sanitizeMetadata(assistantMetadata);
   const storedMessages: StoredChatMessage[] = messages
     .filter((msg) => msg.role !== 'tool' && msg.role !== 'system')
     .map((msg) => ({
       role: msg.role,
       content: msg.content ?? '',
       timestamp: normalizeTimestamp(msg.timestamp),
+      metadata: sanitizeMetadata(msg.metadata),
     }));
 
   if (!assistantContent) {
@@ -322,6 +439,7 @@ function prepareStoredMessages(
     role: 'assistant',
     content: assistantContent,
     timestamp: new Date().toISOString(),
+    metadata: existingAssistantMetadata,
   };
 
   storedMessages.push(assistantRecord);
@@ -336,4 +454,18 @@ function normalizeTimestamp(input?: string): string {
     }
   }
   return new Date().toISOString();
+}
+
+function sanitizeMetadata(metadata?: ChatMessageMetadata): ChatMessageMetadata | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  const sanitized: ChatMessageMetadata = {};
+  if (metadata.llmDurationMs !== undefined) {
+    const numeric = Number(metadata.llmDurationMs);
+    if (Number.isFinite(numeric) && numeric >= 0) {
+      sanitized.llmDurationMs = numeric;
+    }
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
 }

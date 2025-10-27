@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <title>Silent SSO</title>
+  </head>
+  <body>
+    <script>
+      // Keycloak JS adapter expects the iframe to post the current URL as a string
+      // back to the parent window so it can parse the response (code/error/hash).
+      // See: https://www.keycloak.org/docs/latest/securing_apps/#_javascript_adapter
+      try {
+        window.parent.postMessage(window.location.href, window.location.origin);
+      } catch (e) {
+        // As a fallback, allow any origin to avoid strict-origin mismatch in some setups
+        window.parent.postMessage(window.location.href, '*');
+      }
+    </script>
+  </body>
+</html>

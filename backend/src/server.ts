@@ -9,6 +9,9 @@ import { registerChatRoutes } from './routes/chat.js';
 import { registerHealthRoute } from './routes/health.js';
 import { registerSessionRoutes } from './routes/sessions.js';
 import { registerMetricsRoutes } from './routes/metrics.js';
+import { registerAdminBudgetsRoutes } from './routes/admin/budgets.js';
+import { initDatabase } from './db/index.js';
+import { buildAuthHook, logAuthStartupDetails } from './middleware/auth.js';
 
 async function bootstrap() {
   if (!config.openAiApiKey) {
@@ -29,6 +32,15 @@ async function bootstrap() {
     }
   });
 
+  logAuthStartupDetails();
+
+  if (config.auth.enabled) {
+    const authHook = buildAuthHook();
+    app.addHook('onRequest', authHook);
+  }
+
+  await initDatabase(config.databasePath);
+
   const mcpManager = new MCPManager(config.mcpConfigPath);
   await mcpManager.init();
 
@@ -39,6 +51,7 @@ async function bootstrap() {
   await registerHealthRoute(app as any, { mcpManager, openAi });
   await registerSessionRoutes(app as any);
   await registerMetricsRoutes(app as any);
+  await registerAdminBudgetsRoutes(app as any);
 
   app.addHook('onClose', async () => {
     await mcpManager.shutdown();

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { MCPManager } from '../mcp/manager.js';
+import { filterToolsByPermissions, isServerAllowed, resolveEffectivePermissions } from '../rbac/index.js';
 
 interface RegisterMcpRoutesOptions {
   mcpManager: MCPManager;
@@ -9,9 +10,11 @@ interface RegisterMcpRoutesOptions {
 export async function registerMcpRoutes(app: FastifyInstance<any>, options: RegisterMcpRoutesOptions) {
   const { mcpManager } = options;
 
-  app.get('/mcp/tools', async () => {
+  app.get('/mcp/tools', async (request) => {
+    const permissions = resolveEffectivePermissions(request.auth);
     const tools = await mcpManager.listTools();
-    return tools.map((tool) => ({
+    const filtered = filterToolsByPermissions(tools, permissions);
+    return filtered.map((tool) => ({
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters,
@@ -19,8 +22,10 @@ export async function registerMcpRoutes(app: FastifyInstance<any>, options: Regi
     }));
   });
 
-  app.get('/mcp/resources', async () => {
-    return mcpManager.listResources();
+  app.get('/mcp/resources', async (request) => {
+    const permissions = resolveEffectivePermissions(request.auth);
+    const resources = await mcpManager.listResources();
+    return resources.filter((resource) => isServerAllowed(resource.serverId, permissions));
   });
 
   const ReadResourceQuery = z.object({
@@ -37,6 +42,11 @@ export async function registerMcpRoutes(app: FastifyInstance<any>, options: Regi
 
     try {
       const { serverId, uri } = parseResult.data;
+      const permissions = resolveEffectivePermissions(request.auth);
+      if (!isServerAllowed(serverId, permissions)) {
+        reply.status(403);
+        return { error: 'Access to this server is not permitted' };
+      }
       return await mcpManager.readResource(serverId, uri);
     } catch (error) {
       request.log.error({ err: error }, 'Failed to read MCP resource');

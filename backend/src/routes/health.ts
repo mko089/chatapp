@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import OpenAI from 'openai';
 import { MCPManager } from '../mcp/manager.js';
 import { config } from '../config.js';
+import { isModelAllowed, resolveEffectivePermissions } from '../rbac/index.js';
 
 interface RegisterHealthRouteOptions {
   mcpManager: MCPManager;
@@ -11,7 +12,11 @@ interface RegisterHealthRouteOptions {
 export async function registerHealthRoute(app: FastifyInstance<any>, options: RegisterHealthRouteOptions) {
   const { mcpManager, openAi } = options;
 
-  app.get('/health', async () => {
+  app.get('/health', async (request) => {
+    const permissions = resolveEffectivePermissions(request.auth);
+    const allowedModelsByRbac = config.llmAllowedModels.filter((model) => isModelAllowed(model, permissions));
+    const exposedAllowedModels = allowedModelsByRbac.length > 0 ? allowedModelsByRbac : config.llmAllowedModels;
+
     const health = {
       backend: 'ok' as const,
       mcp: { status: 'unknown' as 'ok' | 'error' | 'unknown', error: undefined as string | undefined },
@@ -19,7 +24,11 @@ export async function registerHealthRoute(app: FastifyInstance<any>, options: Re
         status: 'unknown' as 'ok' | 'error' | 'unknown',
         error: undefined as string | undefined,
         model: config.llmModel,
-        allowedModels: config.llmAllowedModels,
+        allowedModels: exposedAllowedModels,
+      },
+      rbac: {
+        enabled: config.rbac.enabled,
+        roles: permissions.appliedRoles,
       },
     };
 

@@ -7,6 +7,8 @@ import { config } from '../config.js';
 import { loadSession } from '../storage/sessionStore.js';
 import { processChatInteraction } from '../services/chatProcessor.js';
 import type { ChatRequestPayload } from '../types/chat.js';
+import { resolveEffectivePermissions, isModelAllowed } from '../rbac/index.js';
+import { evaluateBudgetsForContext } from '../services/budgetEvaluator.js';
 
 const ChatMessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -14,6 +16,12 @@ const ChatMessageSchema = z.object({
   tool_call_id: z.string().optional(),
   name: z.string().optional(),
   timestamp: z.string().optional(),
+  metadata: z
+    .object({
+      llmDurationMs: z.number().nonnegative().optional(),
+    })
+    .partial()
+    .optional(),
 });
 
 const ChatRequestSchema = z.object({
@@ -38,6 +46,8 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       return { error: 'Invalid request', details: body.error.issues };
     }
 
+    const permissions = resolveEffectivePermissions(request.auth);
+
     const rawPayload = body.data as ChatRequestPayload & { maxIterations?: number; model?: string };
     const normalizedPayload: ChatRequestPayload & { maxIterations: number } = {
       ...rawPayload,
@@ -51,6 +61,34 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       reply.status(400);
       return { error: `Model ${selectedModel} is not allowed` };
     }
+
+    if (!isModelAllowed(selectedModel, permissions)) {
+      request.log.warn({ selectedModel, roles: permissions.appliedRoles }, 'Rejected chat request due to RBAC model restriction');
+      reply.status(403);
+      return { error: `Model ${selectedModel} is not permitted for your role` };
+    }
+
+    const budgetContext = {
+      accountId: request.auth?.accountId ?? null,
+      userId: request.auth?.sub ?? null,
+      roles: request.auth?.roles ?? [],
+    };
+
+    const initialBudgetEvaluation = await evaluateBudgetsForContext(budgetContext);
+
+    if (initialBudgetEvaluation.hardLimitBreaches.length > 0) {
+      request.log.warn({ budgets: initialBudgetEvaluation.hardLimitBreaches }, 'Rejected chat request due to budget hard limit');
+      reply.status(403);
+      return {
+        error: 'Budget limit exceeded. Please review your plan or wait for the next reset.',
+        budgets: initialBudgetEvaluation,
+      };
+    }
+
+    if (initialBudgetEvaluation.softLimitBreaches.length > 0) {
+      reply.header('x-budget-warning', 'soft-limit-exceeded');
+    }
+
     const existingSession = await loadSession(sessionId);
     const result = await processChatInteraction({
       payload: normalizedPayload,
@@ -59,6 +97,9 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       mcpManager,
       openAi,
       model: selectedModel,
+      permissions,
+      authContext: request.auth,
+      initialBudgetEvaluation,
       logger: request.log,
     });
 
@@ -71,6 +112,8 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
         toolHistory: result.combinedToolHistory,
         usage: result.usageSummary,
         model: selectedModel,
+        llmDurationMs: result.llmDurationMs,
+        budgets: result.budgets,
       };
     }
 
@@ -83,6 +126,8 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       toolHistory: result.combinedToolHistory,
       usage: result.usageSummary,
       model: selectedModel,
+      llmDurationMs: result.llmDurationMs,
+      budgets: result.budgets,
     };
   });
 }

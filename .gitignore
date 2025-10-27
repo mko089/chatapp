@@ -10,6 +10,13 @@ dist/
 # Runtime session data
 backend/backend/data/sessions/
 backend/data/sessions/
+backend/data/*.sqlite
+backend/data/*.sqlite-journal
+backend/data/*.db
+backend/backend/data/
+backend/backend/data/*.sqlite
+backend/backend/data/*.sqlite-*
+backend/backend/data/*.db
 
 # Environment
 .env
