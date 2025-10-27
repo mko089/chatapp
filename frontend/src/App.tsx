@@ -132,6 +132,7 @@ function AppContent() {
   const [toolResults, setToolResults] = useState<ToolInvocation[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [selectedToolResult, setSelectedToolResult] = useState<ToolInvocation | null>(null);
@@ -768,6 +769,9 @@ function AppContent() {
       if (streamingEnabled) {
         const assistantIndex = pendingMessages.length; // position to append deltas
         let assistantAccum = '';
+        const toolArgsById = new Map<string, unknown>();
+        const controller = new AbortController();
+        streamAbortRef.current = controller;
         await chatStream(
           `${baseUrl}/chat/stream`,
           payload,
@@ -787,11 +791,13 @@ function AppContent() {
               setPendingMessages((prev) => [...prev.filter((m) => m !== userMessage), userMessage, assistantMsg]);
             },
             onToolStarted: (id, name, args) => {
+              toolArgsById.set(id, args);
               const rec: ToolInvocation = { name, args, result: { status: 'running' }, timestamp: new Date().toISOString() };
               setToolResults((prev) => [...prev, rec]);
             },
             onToolCompleted: (id, name, result) => {
-              setToolResults((prev) => [...prev, { name, args: {}, result, timestamp: new Date().toISOString() }]);
+              const args = toolArgsById.get(id) ?? {};
+              setToolResults((prev) => [...prev, { name, args, result, timestamp: new Date().toISOString() }]);
             },
             onBudgetWarning: (details) => {
               setBudgetWarning(true);
@@ -829,6 +835,7 @@ function AppContent() {
               setError(message);
             },
           },
+          controller.signal,
         );
       } else {
         // Fallback to legacy non-streaming endpoint
@@ -882,6 +889,7 @@ function AppContent() {
       setError(message);
     } finally {
       setIsBusy(false);
+      streamAbortRef.current = null;
     }
   };
 
@@ -995,7 +1003,19 @@ function AppContent() {
         showInlineTools={showInlineTools}
       />
 
-      <ChatInput disabled={isBusy || isRestoring || !sessionId || !authReady} onSubmit={sendMessage} />
+      <ChatInput
+        disabled={isRestoring || !authReady}
+        busy={isBusy}
+        onSubmit={sendMessage}
+        onCancel={() => {
+          const ctrl = streamAbortRef.current;
+          if (ctrl) {
+            ctrl.abort();
+            setError('Anulowano.');
+            setIsBusy(false);
+          }
+        }}
+      />
 
       {isToolsOpen ? (
         <ToolGroupsPanel
