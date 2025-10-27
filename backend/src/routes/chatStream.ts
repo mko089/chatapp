@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type OpenAI from 'openai';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -41,7 +41,7 @@ type StreamEvent =
   | { type: 'final'; sessionId: string; messages: any[]; toolHistory: any[] }
   | { type: 'error'; message: string };
 
-function writeNdjson(reply: FastifyReply, event: StreamEvent) {
+function writeNdjson(reply: any, event: StreamEvent) {
   try {
     reply.raw.write(JSON.stringify(event) + '\n');
     // @ts-ignore
@@ -90,7 +90,7 @@ function toToolDefinition(tool: NamespacedToolDefinition) {
 export async function registerChatStreamRoutes(app: FastifyInstance<any>, options: { mcpManager: MCPManager; openAi: OpenAI }) {
   const { mcpManager, openAi } = options;
 
-  app.post('/chat/stream', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/chat/stream', async (request, reply) => {
     const parsed = ChatRequestSchema.safeParse(request.body);
     if (!parsed.success) {
       reply.status(400);
