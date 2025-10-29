@@ -8,9 +8,10 @@ interface ToolDockProps {
   favorites: string[];
   onToggleFavorite: (key: string) => void;
   onSelectTool: (tool: ToolInfo) => void;
+  searchRef?: React.RefObject<HTMLInputElement>;
 }
 
-export function ToolDock({ open, groups, history, favorites, onToggleFavorite, onSelectTool }: ToolDockProps) {
+export function ToolDock({ open, groups, history, favorites, onToggleFavorite, onSelectTool, searchRef }: ToolDockProps) {
   const [query, setQuery] = useState('');
 
   const toolMap = useMemo(() => {
@@ -80,6 +81,7 @@ export function ToolDock({ open, groups, history, favorites, onToggleFavorite, o
               onChange={(event) => setQuery(event.target.value)}
               placeholder="np. posbistro..."
               className="flex-1 bg-transparent text-sm text-white placeholder:text-slate-500 focus:outline-none"
+              ref={searchRef}
             />
           </label>
         </div>

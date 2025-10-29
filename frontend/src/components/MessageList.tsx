@@ -175,6 +175,7 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
   const badgeClass = tone === 'ok' ? 'chip chip-primary' : tone === 'error' ? 'chip chip-danger' : 'chip chip-accent';
   const timestamp = formatTimeLabel(tool.timestamp);
   const csvPayload = toCsv(tool);
+  const [expanded, setExpanded] = useState(false);
 
   const handleCopy = async () => {
     const payload = prettyFormatter ? prettyFormatter(tool) : summary;
@@ -211,9 +212,7 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
         </div>
         <span className={badgeClass}>{label}</span>
       </div>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-muted/60 px-4 py-3 text-sm text-slate-200">
-        {summary}
-      </pre>
+      <pre className={`${expanded ? 'max-h-[70vh]' : 'max-h-64'} overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-muted/60 px-4 py-3 text-sm text-slate-200`}>{summary}</pre>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-slate-300">
         <div className="flex gap-2">
           <button
@@ -239,6 +238,13 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
             Logi
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((p) => !p)}
+          className="rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/20 hover:bg-white/10"
+        >
+          {expanded ? 'Zwiń' : 'Pokaż więcej'}
+        </button>
       </div>
     </div>
   );

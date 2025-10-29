@@ -190,6 +190,10 @@ function AppContent() {
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = usePersistentState<string>('chat-selected-model', '');
   const [favoriteToolKeys, setFavoriteToolKeys] = usePersistentState<string[]>('chat-favorite-tools', []);
+  const [uiPeriod, setUiPeriod] = usePersistentState<'today' | 'yesterday' | '7d'>('chat-ui-period', 'today');
+  const [uiLocation, setUiLocation] = usePersistentState<string>('chat-ui-location', '');
+  const dockSearchRef = useRef<HTMLInputElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
   const userDisplayName = useMemo(() => {
     if (!auth.user) {
@@ -595,6 +599,32 @@ function AppContent() {
     }
     return { ...metrics, model };
   }, [toolResults, selectedModel, availableModels, healthQuery.data?.openai.model]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMeta = e.ctrlKey || e.metaKey;
+      if (isMeta && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsToolsOpen(true);
+        setTimeout(() => dockSearchRef.current?.focus(), 0);
+        return;
+      }
+      if (isMeta && e.key.toLowerCase() === 'i') {
+        e.preventDefault();
+        chatInputRef.current?.focus();
+        return;
+      }
+      if (e.key === 'Escape') {
+        if (isHistoryOpen) setIsHistoryOpen(false);
+        if (isSessionDrawerOpen) setIsSessionDrawerOpen(false);
+        if (selectedToolResult) setSelectedToolResult(null);
+        if (selectedToolInfo) setSelectedToolInfo(null);
+        if (isToolsOpen) setIsToolsOpen(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [isHistoryOpen, isSessionDrawerOpen, selectedToolResult, selectedToolInfo, isToolsOpen]);
 
   const formatSessionTimestamp = useCallback((value?: string) => {
     if (!value) {
@@ -1076,7 +1106,13 @@ function AppContent() {
         />
 
         <div className="sticky top-6 z-20">
-          <SessionContextBar context={sessionContext} />
+          <SessionContextBar
+            context={sessionContext}
+            uiLocation={uiLocation || sessionContext.location || null}
+            uiPeriod={uiPeriod}
+            onCyclePeriod={() => setUiPeriod((p) => (p === 'today' ? 'yesterday' : p === 'yesterday' ? '7d' : 'today'))}
+            onClearLocation={() => setUiLocation('')}
+          />
         </div>
 
         {authReady ? (
@@ -1132,11 +1168,18 @@ function AppContent() {
               favorites={favoriteToolKeys}
               onToggleFavorite={toggleFavoriteTool}
               onSelectTool={handleSelectTool}
+              searchRef={dockSearchRef}
             />
           </div>
         </div>
 
-        <ChatInput disabled={isRestoring || !authReady} busy={isBusy} onSubmit={sendMessage} />
+        <ChatInput
+          disabled={isRestoring || !authReady}
+          busy={isBusy}
+          onSubmit={sendMessage}
+          suggestions={Array.from(new Set((toolsQuery.data ?? []).map((t) => t.name))).sort((a, b) => a.localeCompare(b))}
+          inputRef={chatInputRef}
+        />
       </div>
 
       {isToolsOpen ? (
@@ -1150,6 +1193,7 @@ function AppContent() {
               favorites={favoriteToolKeys}
               onToggleFavorite={toggleFavoriteTool}
               onSelectTool={handleSelectTool}
+              searchRef={dockSearchRef}
             />
           </div>
         </div>
@@ -1465,8 +1509,8 @@ type SessionMetrics = {
   timestamp?: string | null;
 };
 
-function SessionContextBar({ context }: { context: SessionMetrics & { model: string } }) {
-  const period = formatSessionPeriodLabel(context.from, context.to) ?? 'Bieżący okres';
+function SessionContextBar({ context, uiLocation, uiPeriod, onCyclePeriod, onClearLocation }: { context: SessionMetrics & { model: string }; uiLocation: string | null; uiPeriod: 'today' | 'yesterday' | '7d'; onCyclePeriod: () => void; onClearLocation: () => void }) {
+  const period = formatSessionPeriodLabel(context.from, context.to) ?? labelForUiPeriod(uiPeriod);
   const updateLabel = context.timestamp
     ? new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit' }).format(new Date(context.timestamp))
     : null;
@@ -1474,14 +1518,22 @@ function SessionContextBar({ context }: { context: SessionMetrics & { model: str
   return (
     <div className="glass-panel mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2 px-5 py-3">
       <span className="chip chip-accent">Model: {context.model}</span>
-      <span className="chip">{context.location ?? 'Brak lokalizacji'}</span>
-      <span className="chip chip-muted">Okres: {period}</span>
+      <button type="button" className="chip hover:bg-white/10" title={uiLocation ? 'Wyczyść lokalizację' : 'Brak lokalizacji'} onClick={() => uiLocation && onClearLocation()}>
+        {uiLocation ?? context.location ?? 'Brak lokalizacji'}
+      </button>
+      <button type="button" className="chip chip-muted hover:bg-white/10" title="Zmień okres (Dziś/Wczoraj/7 dni)" onClick={onCyclePeriod}>
+        Okres: {period}
+      </button>
       <span className="chip chip-primary">Brutto: {formatPln(context.gross)}</span>
       <span className="chip chip-primary">Netto: {formatPln(context.net)}</span>
       <span className="chip chip-primary">Paragony: {formatReceipts(context.receipts)}</span>
       {updateLabel ? <span className="chip chip-muted">Aktualizacja: {updateLabel}</span> : null}
     </div>
   );
+}
+
+function labelForUiPeriod(p: 'today' | 'yesterday' | '7d'): string {
+  return p === 'today' ? 'Dziś' : p === 'yesterday' ? 'Wczoraj' : '7 dni';
 }
 
 function deriveSessionInsights(toolResults: ToolInvocation[]): SessionMetrics | null {
