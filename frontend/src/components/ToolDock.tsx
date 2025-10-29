@@ -42,21 +42,24 @@ export function ToolDock({ open, groups, history, favorites, onToggleFavorite, o
   }, [history, toolMap]);
 
   const filteredTools = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) {
-      return groups;
-    }
-    return groups
-      .map((group) => ({
-        ...group,
-        tools: group.tools.filter((tool) => {
-          const nameMatch = tool.name.toLowerCase().includes(term);
-          const descMatch = tool.description?.toLowerCase().includes(term) ?? false;
-          const serverMatch = group.serverId.toLowerCase().includes(term);
-          return nameMatch || descMatch || serverMatch;
-        }),
-      }))
-      .filter((group) => group.tools.length > 0);
+    const term = query.trim();
+    if (!term) return groups;
+    const scored = groups.map((group) => {
+      const tools = group.tools
+        .map((tool) => ({
+          tool,
+          score: Math.max(
+            fuzzyScore(tool.name, term),
+            fuzzyScore(tool.description || '', term),
+            fuzzyScore(group.serverId, term),
+          ),
+        }))
+        .filter((t) => t.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .map((t) => t.tool);
+      return { ...group, tools };
+    });
+    return scored.filter((g) => g.tools.length > 0);
   }, [groups, query]);
 
   const favoriteTools = useMemo(() => {
@@ -193,4 +196,30 @@ function formatServerName(value: string) {
   return value
     .replace(/[_-]/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+// Prosty fuzzy (subsequence + prefiks boost); wynik 0..100
+function fuzzyScore(text: string, rawTerm: string): number {
+  const term = rawTerm.trim().toLowerCase();
+  const hay = (text || '').toLowerCase();
+  if (!term || !hay) return 0;
+  if (hay.includes(term)) {
+    // Prefiks/podciąg – wyższa ocena
+    const idx = hay.indexOf(term);
+    return 80 + Math.max(0, 20 - idx);
+  }
+  // subsequence match
+  let ti = 0;
+  let hi = 0;
+  let hits = 0;
+  while (ti < term.length && hi < hay.length) {
+    if (term[ti] === hay[hi]) {
+      hits++;
+      ti++;
+    }
+    hi++;
+  }
+  if (hits < Math.ceil(term.length * 0.6)) return 0;
+  const density = hits / Math.max(1, hay.length);
+  return Math.min(75, Math.round(40 + hits * 5 + density * 100));
 }

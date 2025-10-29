@@ -195,17 +195,20 @@ function AppContent() {
   const dockSearchRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatInputHandleRef = useRef<ChatInputHandle>(null);
-  const suggestedPrompts = useMemo(
-    () => [
-      'Pokaż obroty Garden Bistro z wczoraj',
-      'Zestawienie brutto/netto z ostatnich 7 dni (gardenbistro)',
-      'Top 5 pozycji sprzedaży dziś (oaza)',
-      'Ile paragonów było wczoraj w Garden Bistro?',
-      'Porównaj dzisiaj vs wczoraj (gardenbistro)',
+  const suggestedPrompts = useMemo(() => {
+    const effectiveLocation = (uiLocation || (sessionContext as any)?.location || '').toString();
+    const locLabel = effectiveLocation || 'gardenbistro';
+    const periodLabel = uiPeriod === 'today' ? 'dziś' : uiPeriod === 'yesterday' ? 'wczoraj' : 'ostatnich 7 dni';
+    const range = uiPeriod === '7d' ? 'z ostatnich 7 dni' : periodLabel;
+    return [
+      `Pokaż obroty ${locLabel} ${range}`,
+      `Zestawienie brutto/netto ${range} (${locLabel})`,
+      `Top 5 pozycji sprzedaży ${periodLabel} (${locLabel})`,
+      `Ile paragonów było ${periodLabel} w ${formatHumanLocation(locLabel)}?`,
+      `Porównaj ${uiPeriod === 'today' ? 'dzisiaj vs wczoraj' : 'ostatnie 7 dni vs poprzednie 7 dni'} (${locLabel})`,
       'Zużycie narzędzi MCP w tej sesji',
-    ],
-    [],
-  );
+    ];
+  }, [uiLocation, uiPeriod, (sessionContext as any)?.location]);
 
   const userDisplayName = useMemo(() => {
     if (!auth.user) {
@@ -1552,6 +1555,13 @@ function SessionContextBar({ context, uiLocation, uiPeriod, onCyclePeriod, onCle
 
 function labelForUiPeriod(p: 'today' | 'yesterday' | '7d'): string {
   return p === 'today' ? 'Dziś' : p === 'yesterday' ? 'Wczoraj' : '7 dni';
+}
+
+function formatHumanLocation(value: string): string {
+  // Prosty prettifier aliasów jak 'gardenbistro' -> 'Garden Bistro'
+  return value
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function deriveSessionInsights(toolResults: ToolInvocation[]): SessionMetrics | null {
