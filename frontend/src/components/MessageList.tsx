@@ -1,4 +1,4 @@
-import { Fragment, useMemo, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import type { ChatMessage, ToolInvocation } from '../types';
 import { renderInlineValue } from '../utils/inlineFormat';
 
@@ -12,6 +12,8 @@ interface MessageListProps {
   isBusy?: boolean;
   fontScale?: number;
   showInlineTools?: boolean;
+  suggestedPrompts?: string[];
+  onInsertPrompt?: (text: string) => void;
 }
 
 export function MessageList({

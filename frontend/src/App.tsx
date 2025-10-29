@@ -195,20 +195,6 @@ function AppContent() {
   const dockSearchRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
   const chatInputHandleRef = useRef<ChatInputHandle>(null);
-  const suggestedPrompts = useMemo(() => {
-    const effectiveLocation = (uiLocation || (sessionContext as any)?.location || '').toString();
-    const locLabel = effectiveLocation || 'gardenbistro';
-    const periodLabel = uiPeriod === 'today' ? 'dziś' : uiPeriod === 'yesterday' ? 'wczoraj' : 'ostatnich 7 dni';
-    const range = uiPeriod === '7d' ? 'z ostatnich 7 dni' : periodLabel;
-    return [
-      `Pokaż obroty ${locLabel} ${range}`,
-      `Zestawienie brutto/netto ${range} (${locLabel})`,
-      `Top 5 pozycji sprzedaży ${periodLabel} (${locLabel})`,
-      `Ile paragonów było ${periodLabel} w ${formatHumanLocation(locLabel)}?`,
-      `Porównaj ${uiPeriod === 'today' ? 'dzisiaj vs wczoraj' : 'ostatnie 7 dni vs poprzednie 7 dni'} (${locLabel})`,
-      'Zużycie narzędzi MCP w tej sesji',
-    ];
-  }, [uiLocation, uiPeriod, (sessionContext as any)?.location]);
 
   const userDisplayName = useMemo(() => {
     if (!auth.user) {
@@ -614,6 +600,21 @@ function AppContent() {
     }
     return { ...metrics, model };
   }, [toolResults, selectedModel, availableModels, healthQuery.data?.openai.model]);
+
+  const suggestedPrompts = useMemo(() => {
+    const effectiveLocation = (uiLocation || (sessionContext as any)?.location || '').toString();
+    const locLabel = effectiveLocation || 'gardenbistro';
+    const periodLabel = uiPeriod === 'today' ? 'dziś' : uiPeriod === 'yesterday' ? 'wczoraj' : 'ostatnich 7 dni';
+    const range = uiPeriod === '7d' ? 'z ostatnich 7 dni' : periodLabel;
+    return [
+      `Pokaż obroty ${locLabel} ${range}`,
+      `Zestawienie brutto/netto ${range} (${locLabel})`,
+      `Top 5 pozycji sprzedaży ${periodLabel} (${locLabel})`,
+      `Ile paragonów było ${periodLabel} w ${formatHumanLocation(locLabel)}?`,
+      `Porównaj ${uiPeriod === 'today' ? 'dzisiaj vs wczoraj' : 'ostatnie 7 dni vs poprzednie 7 dni'} (${locLabel})`,
+      'Zużycie narzędzi MCP w tej sesji',
+    ];
+  }, [uiLocation, uiPeriod, (sessionContext as any)?.location]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1174,7 +1175,7 @@ function AppContent() {
               fontScale={fontScale}
               showInlineTools={showInlineTools}
               suggestedPrompts={suggestedPrompts}
-              onInsertPrompt={(text) => {
+              onInsertPrompt={(text: string) => {
                 chatInputHandleRef.current?.insert(text);
                 setTimeout(() => chatInputHandleRef.current?.focus(), 0);
               }}
