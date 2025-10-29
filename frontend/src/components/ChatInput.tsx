@@ -1,4 +1,9 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useImperativeHandle, useMemo, useState, forwardRef } from 'react';
+
+export interface ChatInputHandle {
+  insert: (text: string) => void;
+  focus: () => void;
+}
 
 interface ChatInputProps {
   disabled?: boolean;
@@ -8,7 +13,10 @@ interface ChatInputProps {
   inputRef?: React.RefObject<HTMLTextAreaElement>;
 }
 
-export function ChatInput({ disabled, busy, onSubmit, suggestions = [], inputRef }: ChatInputProps) {
+export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function ChatInput(
+  { disabled, busy, onSubmit, suggestions = [], inputRef }: ChatInputProps,
+  ref,
+) {
   const [value, setValue] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [openSuggest, setOpenSuggest] = useState(false);
@@ -23,6 +31,11 @@ export function ChatInput({ disabled, busy, onSubmit, suggestions = [], inputRef
     const uniq = Array.from(new Set(suggestions));
     return uniq.filter((s) => s.toLowerCase().includes(term)).slice(0, 8);
   }, [value, suggestions]);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => (inputRef as any)?.current?.focus?.(),
+    insert: (text: string) => setValue(text),
+  }));
 
   const submit = async () => {
     const trimmed = value.trim();
@@ -55,7 +68,7 @@ export function ChatInput({ disabled, busy, onSubmit, suggestions = [], inputRef
             onChange={(event) => setValue(event.target.value)}
             placeholder="Zadaj pytanie… np. obroty Garden Bistro z wczoraj"
             disabled={disabled || isSubmitting || busy}
-            ref={inputRef}
+            ref={inputRef as any}
             className="min-h-[120px] w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-accent/50 focus:outline-none focus:ring-2 focus:ring-accent/30"
             onKeyDown={(event) => {
               if (openSuggest && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
@@ -83,6 +96,8 @@ export function ChatInput({ disabled, busy, onSubmit, suggestions = [], inputRef
                 event.preventDefault();
                 void submit();
               }
+              const shouldOpen = extractSuggestQuery(value) !== null;
+              setOpenSuggest(shouldOpen);
             }}
           />
           {openSuggest && filtered.length > 0 ? (
@@ -119,7 +134,7 @@ export function ChatInput({ disabled, busy, onSubmit, suggestions = [], inputRef
       </div>
     </form>
   );
-}
+});
 
 function buildActionLabel(raw: string): string {
   const trimmed = raw.trim();

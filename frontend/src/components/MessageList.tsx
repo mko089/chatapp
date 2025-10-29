@@ -24,6 +24,8 @@ export function MessageList({
   isBusy,
   fontScale = 1,
   showInlineTools = true,
+  suggestedPrompts = [],
+  onInsertPrompt,
 }: MessageListProps) {
   const scaleStyle = useMemo(() => ({ fontSize: `${fontScale}rem` }), [fontScale]);
 
@@ -35,6 +37,20 @@ export function MessageList({
           <p className="max-w-xl text-lg text-slate-300">
             Zacznij rozmowę, aby zobaczyć odpowiedzi asystenta i wyniki narzędzi MCP. Podpowiedz czego szukasz – np. obrotów Garden Bistro z wczoraj.
           </p>
+          {suggestedPrompts.length > 0 ? (
+            <div className="mt-2 grid w-full max-w-2xl grid-cols-1 gap-2 sm:grid-cols-2">
+              {suggestedPrompts.slice(0, 6).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-slate-200 transition hover:border-primary/40 hover:bg-primary/15 hover:text-primary"
+                  onClick={() => onInsertPrompt?.(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -176,6 +192,9 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
   const timestamp = formatTimeLabel(tool.timestamp);
   const csvPayload = toCsv(tool);
   const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<'preview' | 'json' | 'csv'>('preview');
+  const jsonPayload = toPrettyJson(tool.result);
+  const rendered = tab === 'preview' ? summary : tab === 'json' ? jsonPayload : (csvPayload ?? 'Brak danych CSV');
 
   const handleCopy = async () => {
     const payload = prettyFormatter ? prettyFormatter(tool) : summary;
@@ -212,16 +231,15 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
         </div>
         <span className={badgeClass}>{label}</span>
       </div>
-      <pre className={`${expanded ? 'max-h-[70vh]' : 'max-h-64'} overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-muted/60 px-4 py-3 text-sm text-slate-200`}>{summary}</pre>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={`chip ${tab==='preview' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('preview')}>Podgląd</button>
+        <button type="button" className={`chip ${tab==='json' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('json')}>JSON</button>
+        <button type="button" className={`chip ${tab==='csv' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('csv')}>CSV</button>
+      </div>
+      <pre className={`${expanded ? 'max-h-[70vh]' : 'max-h-64'} overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-muted/60 px-4 py-3 text-sm text-slate-200`}>{rendered}</pre>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-slate-300">
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/20 hover:bg-white/10"
-          >
-            Kopiuj
-          </button>
+          <button type="button" onClick={() => { const payload = tab==='preview' ? (prettyFormatter ? prettyFormatter(tool) : summary) : tab==='json' ? jsonPayload : (csvPayload ?? ''); if (payload) { void navigator.clipboard?.writeText(payload).catch(() => {}); } }} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-white/20 hover:bg-white/10">Kopiuj</button>
           <button
             type="button"
             onClick={handleDownloadCsv}
@@ -367,4 +385,12 @@ function toCsv(tool: ToolInvocation): string | null {
 
   const rows = entries.map((entry) => header.map((key) => encode((entry as any)[key])));
   return [header.join(','), ...rows.map((row) => row.join(','))].join('\n');
+}
+
+function toPrettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null, null, 2);
+  } catch {
+    return 'Nie można zserializować wyniku do JSON';
+  }
 }

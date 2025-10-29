@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, QueryClient, QueryClientProvider, type UseQueryResult } from '@tanstack/react-query';
 import { MessageList } from './components/MessageList';
-import { ChatInput } from './components/ChatInput';
+import { ChatInput, type ChatInputHandle } from './components/ChatInput';
 import { AppHeader } from './components/AppHeader';
 import { ToolDock } from './components/ToolDock';
 import { BudgetDrawer, type BudgetFormState } from './components/BudgetDrawer';
@@ -194,6 +194,18 @@ function AppContent() {
   const [uiLocation, setUiLocation] = usePersistentState<string>('chat-ui-location', '');
   const dockSearchRef = useRef<HTMLInputElement>(null);
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const chatInputHandleRef = useRef<ChatInputHandle>(null);
+  const suggestedPrompts = useMemo(
+    () => [
+      'Pokaż obroty Garden Bistro z wczoraj',
+      'Zestawienie brutto/netto z ostatnich 7 dni (gardenbistro)',
+      'Top 5 pozycji sprzedaży dziś (oaza)',
+      'Ile paragonów było wczoraj w Garden Bistro?',
+      'Porównaj dzisiaj vs wczoraj (gardenbistro)',
+      'Zużycie narzędzi MCP w tej sesji',
+    ],
+    [],
+  );
 
   const userDisplayName = useMemo(() => {
     if (!auth.user) {
@@ -1158,6 +1170,11 @@ function AppContent() {
               isBusy={isBusy}
               fontScale={fontScale}
               showInlineTools={showInlineTools}
+              suggestedPrompts={suggestedPrompts}
+              onInsertPrompt={(text) => {
+                chatInputHandleRef.current?.insert(text);
+                setTimeout(() => chatInputHandleRef.current?.focus(), 0);
+              }}
             />
           </section>
           <div className="hidden lg:block lg:w-80 lg:flex-shrink-0">
@@ -1179,6 +1196,7 @@ function AppContent() {
           onSubmit={sendMessage}
           suggestions={Array.from(new Set((toolsQuery.data ?? []).map((t) => t.name))).sort((a, b) => a.localeCompare(b))}
           inputRef={chatInputRef}
+          ref={chatInputHandleRef}
         />
       </div>
 
