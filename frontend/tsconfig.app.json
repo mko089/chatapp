@@ -11,9 +11,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": []
+    "types": ["vite/client"],
+    "noEmit": true
   },
   "include": ["src"],
   "references": []
 }
-

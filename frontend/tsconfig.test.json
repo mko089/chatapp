@@ -5,5 +5,5 @@
     "composite": true,
     "types": ["vitest/globals", "vitest/importMeta"]
   },
-  "include": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

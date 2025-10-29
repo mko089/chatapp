@@ -74,6 +74,7 @@ export function BudgetDrawer(props: BudgetDrawerProps) {
       setFormError('Limit musi być liczbą nieujemną');
       return;
     }
+
     setIsSubmitting(true);
     try {
       await onCreate({ ...formState, scopeId: formState.scopeId.trim() });
@@ -88,10 +89,10 @@ export function BudgetDrawer(props: BudgetDrawerProps) {
   const renderBudgetList = (scopeType: ScopeType) => {
     const list = groupedBudgets[scopeType] ?? [];
     if (list.length === 0) {
-      return <div className="budget-empty">Brak budżetów dla tej kategorii.</div>;
+      return <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">Brak budżetów dla tej kategorii.</div>;
     }
     return (
-      <div className="budget-list">
+      <div className="space-y-3">
         {list.map((budget) => {
           const limitLabel = formatCurrency(budget.limitCents, budget.currency);
           const matches = evaluation?.statuses.find(
@@ -100,22 +101,39 @@ export function BudgetDrawer(props: BudgetDrawerProps) {
           const remainingLabel = matches ? formatCurrency(matches.remainingCents, budget.currency) : null;
           const breached = matches?.hardLimitBreached || matches?.softLimitBreached;
           return (
-            <div key={budget.id} className={`budget-entry${breached ? ' budget-entry-warning' : ''}`}>
-              <div className="budget-entry-main">
-                <div className="budget-entry-title">
-                  <strong>{budget.scopeId}</strong>
-                  <span>{budget.scopeType}</span>
-                  <span>{budget.period}</span>
-                  {budget.resetDay ? <span>reset {budget.resetDay} dzień</span> : null}
-                  {budget.hardLimit ? <span className="budget-chip-hard">hard limit</span> : <span className="budget-chip-soft">soft limit</span>}
+            <div
+              key={budget.id}
+              className={`rounded-2xl border px-5 py-4 transition ${breached ? 'border-danger/60 bg-danger/10' : 'border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10'}`}
+            >
+              <div className="flex flex-col gap-2 text-sm text-slate-200">
+                <div className="flex flex-wrap items-center gap-2">
+                  <strong className="text-white">{budget.scopeId}</strong>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs uppercase tracking-wide text-slate-400">
+                    {budget.scopeType}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs uppercase tracking-wide text-slate-400">
+                    {budget.period}
+                  </span>
+                  {budget.resetDay ? (
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-xs uppercase tracking-wide text-slate-400">
+                      reset {budget.resetDay}. dnia
+                    </span>
+                  ) : null}
+                  <span className={`rounded-full border px-2 py-0.5 text-xs uppercase tracking-wide ${budget.hardLimit ? 'border-danger/40 bg-danger/15 text-danger' : 'border-primary/40 bg-primary/15 text-primary'}`}>
+                    {budget.hardLimit ? 'Hard limit' : 'Soft limit'}
+                  </span>
                 </div>
-                <div className="budget-entry-meta">
+                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400">
                   <span>Limit: {limitLabel}</span>
                   {remainingLabel ? <span>Pozostało: {remainingLabel}</span> : null}
                 </div>
               </div>
-              <div className="budget-entry-actions">
-                <button type="button" onClick={() => onDelete(budget)}>
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => onDelete(budget)}
+                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-danger/40 hover:bg-danger/20 hover:text-danger"
+                >
                   Usuń
                 </button>
               </div>
@@ -127,137 +145,141 @@ export function BudgetDrawer(props: BudgetDrawerProps) {
   };
 
   return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="drawer budget-drawer" onClick={(event) => event.stopPropagation()}>
-        <div className="drawer-header">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={onClose}>
+      <div className="glass-panel w-full max-w-4xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
           <div>
-            <div className="drawer-title">Budżety</div>
-            <div className="drawer-subtitle">Zarządzaj limitami kosztów dla kont, ról i użytkowników</div>
+            <div className="text-lg font-semibold text-white">Budżety</div>
+            <div className="text-sm text-slate-400">Zarządzaj limitami kosztów dla kont, ról i użytkowników</div>
           </div>
-          <button type="button" className="drawer-close" onClick={onClose}>
-            ×
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300 transition hover:border-white/30 hover:bg-white/10"
+          >
+            Zamknij
           </button>
         </div>
 
-        <div className="budget-toolbar">
-          <button type="button" onClick={onRefresh} disabled={loading}>
-            Odśwież
-          </button>
-          {loading ? <span className="budget-status">Ładowanie…</span> : null}
-          {error ? <span className="budget-error">{error}</span> : null}
-        </div>
-
-        <form className="budget-form" onSubmit={handleSubmit}>
-          <div className="budget-form-row">
-            <label>
-              Zakres
-              <select
-                value={formState.scopeType}
-                onChange={(event) => setFormState((prev) => ({ ...prev, scopeType: event.target.value as ScopeType }))}
-              >
-                <option value="account">Konto</option>
-                <option value="role">Rola</option>
-                <option value="user">Użytkownik</option>
-              </select>
-            </label>
-            <label>
-              Identyfikator
-              <input
-                type="text"
-                value={formState.scopeId}
-                onChange={(event) => setFormState((prev) => ({ ...prev, scopeId: event.target.value }))}
-                placeholder="np. 123 lub admin"
-              />
-            </label>
-            <label>
-              Okres
-              <select
-                value={formState.period}
-                onChange={(event) => setFormState((prev) => ({ ...prev, period: event.target.value as PeriodType }))}
-              >
-                <option value="monthly">Miesięczny</option>
-                <option value="daily">Dzienny</option>
-                <option value="rolling_30d">Ruchome 30 dni</option>
-              </select>
-            </label>
-          </div>
-          <div className="budget-form-row">
-            <label>
-              Limit (USD)
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value={formState.limitUsd}
-                onChange={(event) => setFormState((prev) => ({ ...prev, limitUsd: Number(event.target.value) }))}
-              />
-            </label>
-            <label>
-              Reset (dzień)
-              <input
-                type="number"
-                min="1"
-                max="28"
-                value={formState.resetDay ?? ''}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setFormState((prev) => ({ ...prev, resetDay: value ? Number(value) : null }));
-                }}
-                placeholder="opcjonalnie"
-              />
-            </label>
-            <label className="budget-checkbox">
-              <input
-                type="checkbox"
-                checked={formState.hardLimit}
-                onChange={(event) => setFormState((prev) => ({ ...prev, hardLimit: event.target.checked }))}
-              />
-              Hard limit (blokuj po przekroczeniu)
-            </label>
-            <button type="submit" disabled={isSubmitting}>
-              Dodaj / Zapisz
+        <div className="space-y-6 px-6 py-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-primary/40 hover:bg-primary/20 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Odśwież
             </button>
+            {loading ? <span className="chip chip-muted">Ładowanie…</span> : null}
+            {error ? <span className="rounded-full border border-danger/40 bg-danger/15 px-3 py-1 text-xs text-danger">{error}</span> : null}
           </div>
-          {formError ? <div className="budget-error">{formError}</div> : null}
-        </form>
 
-        <div className="budget-section">
-          <h3>Konta</h3>
-          {renderBudgetList('account')}
-        </div>
-        <div className="budget-section">
-          <h3>Role</h3>
-          {renderBudgetList('role')}
-        </div>
-        <div className="budget-section">
-          <h3>Użytkownicy</h3>
-          {renderBudgetList('user')}
-        </div>
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="flex flex-col gap-2 text-sm text-slate-200">
+                <span>Zakres</span>
+                <select
+                  value={formState.scopeType}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, scopeType: event.target.value as ScopeType }))}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="account">Konto</option>
+                  <option value="role">Rola</option>
+                  <option value="user">Użytkownik</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm text-slate-200">
+                <span>Identyfikator</span>
+                <input
+                  type="text"
+                  value={formState.scopeId}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, scopeId: event.target.value }))}
+                  placeholder="np. 123 lub admin"
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm text-slate-200">
+                <span>Okres</span>
+                <select
+                  value={formState.period}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, period: event.target.value as PeriodType }))}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                >
+                  <option value="monthly">Miesięczny</option>
+                  <option value="daily">Dzienny</option>
+                  <option value="rolling_30d">Ruchome 30 dni</option>
+                </select>
+              </label>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="flex flex-col gap-2 text-sm text-slate-200">
+                <span>Limit (USD)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={formState.limitUsd}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, limitUsd: Number(event.target.value) }))}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm text-slate-200">
+                <span>Reset (dzień)</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="28"
+                  value={formState.resetDay ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value === '' ? null : Number(event.target.value);
+                    setFormState((prev) => ({ ...prev, resetDay: value }));
+                  }}
+                  placeholder="opcjonalnie"
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={formState.hardLimit}
+                  onChange={(event) => setFormState((prev) => ({ ...prev, hardLimit: event.target.checked }))}
+                  className="h-4 w-4 rounded border border-white/10 bg-white/5 text-primary focus:ring-primary/40"
+                />
+                Hard limit (blokuj po przekroczeniu)
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              {formError ? (
+                <div className="rounded-2xl border border-danger/40 bg-danger/15 px-4 py-2 text-sm text-danger">{formError}</div>
+              ) : (
+                <span className="text-xs text-slate-500">Dostępne waluty zgodne z konfiguracją konta.</span>
+              )}
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="rounded-full border border-primary/40 bg-primary/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? 'Zapisywanie…' : 'Dodaj budżet'}
+              </button>
+            </div>
+          </form>
 
-        {evaluation ? (
-          <div className="budget-evaluation">
-            <h3>Aktywne ostrzeżenia</h3>
-            {evaluation.hardLimitBreaches.length === 0 && evaluation.softLimitBreaches.length === 0 ? (
-              <div className="budget-empty">Brak aktywnych przekroczeń limitów.</div>
-            ) : null}
-            {evaluation.hardLimitBreaches.map((status) => (
-              <div key={`hard-${status.budget.scopeType}-${status.budget.scopeId}`} className="budget-alert budget-alert-hard">
-                <strong>
-                  {status.budget.scopeType} {status.budget.scopeId}
-                </strong>{' '}
-                przekroczyło twardy limit. Pozostało {formatCurrency(status.remainingCents, status.budget.currency)}.
-              </div>
-            ))}
-            {evaluation.softLimitBreaches.map((status) => (
-              <div key={`soft-${status.budget.scopeType}-${status.budget.scopeId}`} className="budget-alert budget-alert-soft">
-                <strong>
-                  {status.budget.scopeType} {status.budget.scopeId}
-                </strong>{' '}
-                przekroczyło miękki limit. Pozostało {formatCurrency(status.remainingCents, status.budget.currency)}.
-              </div>
-            ))}
+          <div className="space-y-5">
+            <section>
+              <div className="text-xs uppercase tracking-wide text-slate-500">Budżety kont</div>
+              {renderBudgetList('account')}
+            </section>
+            <section>
+              <div className="text-xs uppercase tracking-wide text-slate-500">Budżety ról</div>
+              {renderBudgetList('role')}
+            </section>
+            <section>
+              <div className="text-xs uppercase tracking-wide text-slate-500">Budżety użytkowników</div>
+              {renderBudgetList('user')}
+            </section>
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );

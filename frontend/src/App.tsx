@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, QueryClient, QueryClientProvider, type UseQueryResult } from '@tanstack/react-query';
 import { MessageList } from './components/MessageList';
 import { ChatInput } from './components/ChatInput';
 import { AppHeader } from './components/AppHeader';
-import { ToolGroupsPanel } from './components/ToolGroupsPanel';
+import { ToolDock } from './components/ToolDock';
 import { BudgetDrawer, type BudgetFormState } from './components/BudgetDrawer';
 import { renderInlineValue } from './utils/inlineFormat';
 import { usePersistentState } from './hooks/usePersistentState';
@@ -23,7 +23,14 @@ import { useChatStream } from './hooks/useChatStream';
 const queryClient = new QueryClient();
 const systemMessage: ChatMessage = {
   role: 'system',
-  content: 'You are a helpful assistant working with Garden MCP tools (meters, employee).',
+  content:
+    'You are a helpful assistant working with Garden MCP tools (meters, employee, posbistro, fincost, garden).\n' +
+    '- When using posbistro tools: if the user mentions "Garden Bistro" use location alias "gardenbistro" unless another alias is specified.\n' +
+    '- Prefer posbistro_item_sales_today (requires { location }) to get today\'s revenue; if a daily range is needed, use normalized_item_sales_daily_totals with { from, to } in YYYY-MM-DD.\n' +
+    '- For item_sales_today responses, there is a summary entry (data_type == "summary"); treat its gross_expenditures_total as today\'s gross revenue and present it clearly.\n' +
+    '- For normalized_item_sales_daily_totals, parse the JSON inside the text content and sum days[*].gross to produce total revenue for the requested range; include the date range and currency in the final answer.\n' +
+    '- If the API requires from/to, default both to today in the user\'s timezone.\n' +
+    '- Never call write/update/delete tools unless explicitly asked.',
 };
 
 const DEFAULT_MODEL_ORDER = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano', 'gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4.1-nano'];
@@ -110,7 +117,7 @@ function AppContent() {
   const authLoading = auth.enabled && !auth.ready;
   const requiresLogin = auth.enabled && auth.ready && !auth.isAuthenticated;
 
-  const baseUrl = useMemo(() => {
+  const [baseUrl, setBaseUrl] = useState<string>(() => {
     const explicit = (import.meta as any)?.env?.VITE_CHATAPI_URL as string | undefined;
     if (explicit && explicit.length > 0) {
       return explicit;
@@ -127,7 +134,8 @@ function AppContent() {
       }
     }
     return `http://localhost:${fallbackPort}`;
-  }, []);
+  });
+  const triedFallbackRef = useRef(false);
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [toolResults, setToolResults] = useState<ToolInvocation[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +157,6 @@ function AppContent() {
   const [isSessionDrawerOpen, setIsSessionDrawerOpen] = useState(false);
   const [isSessionsLoading, setIsSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
-  const [selectedToolGroupId, setSelectedToolGroupId] = useState<string | null>(null);
   const [selectedToolInfo, setSelectedToolInfo] = useState<ToolInfo | null>(null);
   const hasInitialisedSession = useRef(false);
   const [budgetDrawerOpen, setBudgetDrawerOpen] = useState(false);
@@ -182,6 +189,7 @@ function AppContent() {
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModel, setSelectedModel] = usePersistentState<string>('chat-selected-model', '');
+  const [favoriteToolKeys, setFavoriteToolKeys] = usePersistentState<string[]>('chat-favorite-tools', []);
 
   const userDisplayName = useMemo(() => {
     if (!auth.user) {
@@ -210,11 +218,11 @@ function AppContent() {
     if (accountIdentifier) {
       segments.push(`Konto: ${accountIdentifier}`);
     }
-    if (userRoles.length > 0) {
-      segments.push(`Role: ${userRoles.join(', ')}`);
+    if (usageSummary && Number.isFinite(usageSummary.costUsd)) {
+      segments.push(`Koszt sesji: $${usageSummary.costUsd.toFixed(4)}`);
     }
     return segments.join('\n');
-  }, [accountIdentifier, auth.user, userRoles]);
+  }, [accountIdentifier, auth.user, usageSummary]);
 
   const canManageBudgets = useMemo(() => normalizedRoles.some((role) => role === 'owner' || role === 'admin'), [normalizedRoles]);
 
@@ -422,6 +430,36 @@ function AppContent() {
     refetchInterval: authReady ? 30_000 : false,
   });
 
+  // If explicit base URL is unreachable (e.g. stale LAN IP), try sensible fallbacks once
+  useEffect(() => {
+    if (!authReady || !healthQuery.isError || triedFallbackRef.current) {
+      return;
+    }
+    const err: unknown = healthQuery.error;
+    const message = (err && typeof err === 'object' && 'message' in err ? (err as any).message : '') as string;
+    const isNetworkError = err instanceof TypeError || /fetch|network|Failed to|ERR_CONNECTION_REFUSED/i.test(message);
+    if (!isNetworkError) return;
+
+    const fallbackPort = (import.meta as any)?.env?.VITE_CHATAPI_PORT ?? '4025';
+    const candidates: string[] = [];
+    // Prefer same host, different port
+    if (typeof window !== 'undefined') {
+      try {
+        const u = new URL(window.location.href);
+        u.port = fallbackPort;
+        candidates.push(u.origin);
+      } catch {}
+    }
+    // Then localhost variants
+    candidates.push(`http://localhost:${fallbackPort}`, `http://127.0.0.1:${fallbackPort}`);
+
+    const unique = candidates.filter((c, i, arr) => c && c !== baseUrl && arr.indexOf(c) === i);
+    if (unique.length > 0) {
+      triedFallbackRef.current = true;
+      setBaseUrl(unique[0]);
+    }
+  }, [authReady, baseUrl, healthQuery.error, healthQuery.isError]);
+
   // Effective admin access: either token roles or server-side RBAC says owner/admin
   const hasAdminAccess = useCallback(() => {
     if (canManageBudgets) return true;
@@ -458,15 +496,84 @@ function AppContent() {
   const formatResult = (result: unknown) => formatStructuredValue(result ?? null, 2, 'null');
 
   const filterDisplayMessages = useCallback(
-    (messages: ChatMessage[]): ChatMessage[] => (messages ?? []).filter((msg) => msg.role !== 'system'),
+    (messages: ChatMessage[]): ChatMessage[] =>
+      (messages ?? []).filter((msg) => msg.role !== 'system' && msg.role !== 'tool'),
     [],
   );
 
+  const formatPosbistroSummaryInline = useCallback((tool: ToolInvocation): string | null => {
+    const result = tool.result as any;
+    if (!result || typeof result !== 'object') {
+      return null;
+    }
+
+    const type = typeof result.type === 'string' ? result.type : '';
+    if (!type.startsWith('posbistro.') || !type.endsWith('.summary')) {
+      return null;
+    }
+
+    const baseType = typeof result.tool === 'string' ? result.tool : type.replace(/\.summary$/, '');
+    const readableName = baseType.split('.').pop() ?? baseType;
+
+    const getLocation = (): string | null => {
+      if (typeof result.location === 'string' && result.location.trim().length > 0) {
+        return result.location;
+      }
+      if (tool.args && typeof tool.args === 'object' && tool.args !== null) {
+        const candidate = (tool.args as Record<string, unknown>).location;
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+          return candidate;
+        }
+      }
+      return null;
+    };
+
+    const parseNumber = (value: unknown): number | null => {
+      const num = typeof value === 'string' ? Number(value) : (typeof value === 'number' ? value : NaN);
+      return Number.isFinite(num) ? num : null;
+    };
+
+    const location = getLocation();
+    const from = typeof result.from === 'string' ? result.from : undefined;
+    const to = typeof result.to === 'string' ? result.to : undefined;
+    const period = from && to ? `${from} → ${to}` : from ?? to ?? undefined;
+
+    const gross = parseNumber(result.gross ?? result.summary?.gross_expenditures_total);
+    const net = parseNumber(result.net ?? result.summary?.net_expenditures_total);
+
+    const entries = Array.isArray(result.entries) ? result.entries : [];
+    const entryCount = entries.length;
+    const topItems = entries
+      .map((entry: any) => (typeof entry?.item_name === 'string' ? entry.item_name : null))
+      .filter((name: string | null): name is string => Boolean(name))
+      .slice(0, 3);
+
+    const formatter = new Intl.NumberFormat('pl-PL', {
+      style: 'currency',
+      currency: 'PLN',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    const grossLabel = gross !== null ? formatter.format(gross) : 'brak danych';
+    const netLabel = net !== null ? formatter.format(net) : 'brak danych';
+    const locationLabel = location ? ` @ ${location}` : '';
+    const periodLabel = period ? ` • ${period}` : '';
+    const entriesLabel = entryCount > 0 ? `${entryCount} pozycji` : '0 pozycji';
+    const topLabel = topItems.length > 0 ? ` • Top: ${topItems.join(', ')}` : '';
+
+    return `• ${readableName} summary${locationLabel}${periodLabel} ⇒ ${entriesLabel}, brutto ${grossLabel} (netto ${netLabel})${topLabel}`;
+  }, []);
+
   const formatInlineSummary = useCallback((tool: ToolInvocation): string => {
+    const specialized = formatPosbistroSummaryInline(tool);
+    if (specialized) {
+      return specialized;
+    }
     const argsInline = renderInlineValue(tool.args, 220, '{}');
     const resultInline = renderInlineValue(tool.result ?? null, 320, 'null');
     return `• Called ${tool.name}(${argsInline})\n  └ ${resultInline}`;
-  }, []);
+  }, [formatPosbistroSummaryInline]);
 
   const formatInlinePretty = useCallback((tool: ToolInvocation): string => {
     const header = `Called ${tool.name}`;
@@ -479,6 +586,15 @@ function AppContent() {
 
     return `${header}\n${argsSection}\n${resultSection}`;
   }, []);
+
+  const sessionContext = useMemo(() => {
+    const metrics = deriveSessionInsights(toolResults);
+    const model = selectedModel || availableModels[0] || healthQuery.data?.openai.model || 'gpt-4.1';
+    if (!metrics) {
+      return { model };
+    }
+    return { ...metrics, model };
+  }, [toolResults, selectedModel, availableModels, healthQuery.data?.openai.model]);
 
   const formatSessionTimestamp = useCallback((value?: string) => {
     if (!value) {
@@ -504,16 +620,22 @@ function AppContent() {
     return 'Ostatnia aktywność';
   }, []);
 
-  const formatServerLabel = useCallback((serverId: string) => {
-    return serverId
-      .replace(/[_-]/g, ' ')
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-  }, []);
+  const toggleFavoriteTool = useCallback(
+    (key: string) => {
+      setFavoriteToolKeys((prev) => (prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key]));
+    },
+    [setFavoriteToolKeys],
+  );
 
-  const formatGroupDescription = useCallback((group: ToolGroupInfo) => {
-    const readable = formatServerLabel(group.serverId);
-    return `${readable} • ${group.tools.length} narzędzi MCP`;
-  }, [formatServerLabel]);
+  const handleSelectTool = useCallback(
+    (tool: ToolInfo) => {
+      setSelectedToolInfo(tool);
+      if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        setIsToolsOpen(false);
+      }
+    },
+    [setSelectedToolInfo, setIsToolsOpen],
+  );
 
   const toolsQuery = useQuery({
     queryKey: ['tools', baseUrl, auth.token],
@@ -540,19 +662,6 @@ function AppContent() {
       .sort((a, b) => a.serverId.localeCompare(b.serverId));
   }, [toolsQuery.data]);
 
-  const selectedToolGroup = useMemo(() => {
-    if (!selectedToolGroupId) {
-      return null;
-    }
-    return toolGroups.find((group) => group.serverId === selectedToolGroupId) ?? null;
-  }, [selectedToolGroupId, toolGroups]);
-
-  useEffect(() => {
-    if (!selectedToolGroup) {
-      setSelectedToolInfo(null);
-    }
-  }, [selectedToolGroup]);
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const handleResize = () => {
@@ -564,35 +673,14 @@ function AppContent() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  useEffect(() => {
-    if (!isToolsOpen) {
-      setSelectedToolGroupId(null);
-    }
-  }, [isToolsOpen]);
 
   const syncConversationState = useCallback(
     (messages: ChatMessage[], toolHistory: ToolInvocation[]) => {
       const displayMessages = filterDisplayMessages(messages);
+      const normalizedToolHistory = Array.isArray(toolHistory) ? [...toolHistory] : [];
       setHistory(displayMessages);
-      setToolResults(toolHistory);
-      setAssistantToolCounts((prev) => {
-        const assistantCount = displayMessages.filter((msg) => msg.role === 'assistant').length;
-        if (assistantCount === 0) {
-          return [];
-        }
-        const trimmedPrev = prev.slice(0, assistantCount);
-        const existingSum = trimmedPrev.reduce((sum, value) => sum + value, 0);
-        const total = toolHistory.length;
-        const delta = Math.max(0, total - existingSum);
-        const next = new Array(assistantCount).fill(0);
-        for (let i = 0; i < assistantCount - 1; i += 1) {
-          next[i] = trimmedPrev[i] ?? 0;
-        }
-        const lastIndex = assistantCount - 1;
-        const existingLast = trimmedPrev[lastIndex] ?? 0;
-        next[lastIndex] = existingLast + delta;
-        return next;
-      });
+      setToolResults(normalizedToolHistory);
+      setAssistantToolCounts(computeAssistantToolCounts(displayMessages, normalizedToolHistory));
     },
     [filterDisplayMessages],
   );
@@ -814,17 +902,21 @@ function AppContent() {
                 params.set('session', newSessionId);
                 window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`);
               }
-              const combined = [...toolResults, ...historyItems];
+              const mergedToolHistory = Array.isArray(historyItems) ? (historyItems as ToolInvocation[]) : [];
+              const finalToolHistory = mergedToolHistory.length > 0 ? mergedToolHistory : toolResults;
               // Prefer server messages when provided
               const serverMessages: ChatMessage[] = Array.isArray(messages) ? (messages as ChatMessage[]) : [];
               if (serverMessages.length > 0) {
-                syncConversationState(serverMessages, combined);
+                syncConversationState(serverMessages, finalToolHistory);
               } else {
                 // Fallback: commit pending buffer
                 if (assistantAccum) {
-                  syncConversationState([...history, userMessage, { role: 'assistant', content: assistantAccum }], combined);
+                  syncConversationState(
+                    [...history, userMessage, { role: 'assistant', content: assistantAccum }],
+                    finalToolHistory,
+                  );
                 } else {
-                  syncConversationState([...history, userMessage], combined);
+                  syncConversationState([...history, userMessage], finalToolHistory);
                 }
               }
               setPendingMessages([]);
@@ -904,15 +996,17 @@ function AppContent() {
 
   if (authLoading) {
     return (
-      <div className="auth-overlay">
-        <div className="auth-card">
-          <h1>Łączenie z usługą logowania…</h1>
-          <p>Trwa inicjalizacja połączenia z Keycloak. Proszę czekać.</p>
-          <div className="auth-actions">
-            <button type="button" onClick={handleLogin}>
-              Przejdź do logowania
-            </button>
-          </div>
+      <div className="flex min-h-screen items-center justify-center bg-surface px-4 py-12">
+        <div className="glass-panel w-full max-w-md space-y-4 px-6 py-8 text-center">
+          <h1 className="text-xl font-semibold text-white">Łączenie z usługą logowania…</h1>
+          <p className="text-sm text-slate-300">Trwa inicjalizacja połączenia z Keycloak. Proszę czekać.</p>
+          <button
+            type="button"
+            onClick={handleLogin}
+            className="inline-flex items-center justify-center rounded-full border border-accent/40 bg-accent/20 px-5 py-2 text-sm font-semibold uppercase tracking-wide text-accent transition hover:bg-accent/30"
+          >
+            Przejdź do logowania
+          </button>
         </div>
       </div>
     );
@@ -920,118 +1014,313 @@ function AppContent() {
 
   if (requiresLogin) {
     return (
-      <div className="auth-overlay">
-        <div className="auth-card">
-          <h1>Wymagane logowanie</h1>
-          <p>Zaloguj się, aby korzystać z aplikacji i narzędzi MCP.</p>
-          {auth.error ? <p className="auth-error">{auth.error}</p> : null}
-          <div className="auth-actions">
-            <button type="button" onClick={handleLogin}>
-              Zaloguj przez Keycloak
-            </button>
-          </div>
+      <div className="flex min-h-screen items-center justify-center bg-surface px-4 py-12">
+        <div className="glass-panel w-full max-w-md space-y-4 px-6 py-8 text-center">
+          <h1 className="text-xl font-semibold text-white">Wymagane logowanie</h1>
+          <p className="text-sm text-slate-300">Zaloguj się, aby korzystać z aplikacji i narzędzi MCP.</p>
+          {auth.error ? <p className="rounded-2xl border border-danger/40 bg-danger/20 px-4 py-2 text-sm text-danger">{auth.error}</p> : null}
+          <button
+            type="button"
+            onClick={handleLogin}
+            className="inline-flex items-center justify-center rounded-full border border-accent/40 bg-accent/20 px-5 py-2 text-sm font-semibold uppercase tracking-wide text-accent transition hover:bg-accent/30"
+          >
+            Zaloguj przez Keycloak
+          </button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="app-shell" style={{ '--chat-font-scale': fontScale } as CSSProperties}>
-      <AppHeader
-        isBusy={isBusy}
-        isRestoring={isRestoring}
-        toolsLoading={toolsQuery.isLoading}
-        canOpenHistory={toolResults.length > 0}
-        onOpenHistory={() => setIsHistoryOpen(true)}
-        onOpenSessions={openSessionsDrawer}
-        onOpenBudgets={openBudgetDrawer}
-        isToolsOpen={isToolsOpen}
-        onToggleTools={() => setIsToolsOpen((prev) => !prev)}
-        fontScaleLabel={`${Math.round(fontScale * 100)}%`}
-        onDecreaseFont={() => adjustFont(-0.1)}
-        onIncreaseFont={() => adjustFont(0.1)}
-        onResetFont={resetFont}
-        onCancelStream={() => {
-          const ctrl = streamAbortRef.current;
-          if (ctrl) {
-            ctrl.abort();
-            setError('Anulowano.');
-            setIsBusy(false);
-          }
-        }}
-        showInlineTools={showInlineTools}
-        onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
-        statuses={buildStatuses(healthQuery)}
-        usage={usageSummary}
-        models={availableModels.length > 0 ? availableModels : [selectedModel || healthQuery.data?.openai.model || 'gpt-4.1']}
-        selectedModel={selectedModel || availableModels[0] || healthQuery.data?.openai.model || 'gpt-4.1'}
-        onSelectModel={setSelectedModel}
-        authEnabled={auth.enabled}
-        authLoading={authLoading}
-        isAuthenticated={authReady}
-        userLabel={userDisplayName}
-        userTooltip={authTooltip}
-        accountId={accountIdentifier}
-        roles={userRoles}
-        onLogin={handleLogin}
-        onLogout={handleLogout}
-        canManageBudgets={hasAdminAccess()}
-        budgetWarning={budgetWarning}
-      />
+    <div className="min-h-screen">
+      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 pb-32 pt-6">
+        <AppHeader
+          isBusy={isBusy}
+          isRestoring={isRestoring}
+          toolsLoading={toolsQuery.isLoading}
+          canOpenHistory={toolResults.length > 0}
+          onOpenHistory={() => setIsHistoryOpen(true)}
+          onOpenSessions={openSessionsDrawer}
+          onOpenBudgets={openBudgetDrawer}
+          isToolsOpen={isToolsOpen}
+          onToggleTools={() => setIsToolsOpen((prev) => !prev)}
+          fontScaleLabel={`${Math.round(fontScale * 100)}%`}
+          onDecreaseFont={() => adjustFont(-0.1)}
+          onIncreaseFont={() => adjustFont(0.1)}
+          onResetFont={resetFont}
+          onCancelStream={() => {
+            const ctrl = streamAbortRef.current;
+            if (ctrl) {
+              ctrl.abort();
+              setError('Anulowano.');
+              setIsBusy(false);
+            }
+          }}
+          showInlineTools={showInlineTools}
+          onToggleInlineTools={() => setShowInlineTools((prev) => !prev)}
+          statuses={buildStatuses(healthQuery)}
+          usage={usageSummary}
+          models={availableModels.length > 0 ? availableModels : [selectedModel || healthQuery.data?.openai.model || 'gpt-4.1']}
+          selectedModel={selectedModel || availableModels[0] || healthQuery.data?.openai.model || 'gpt-4.1'}
+          onSelectModel={setSelectedModel}
+          authEnabled={auth.enabled}
+          authLoading={authLoading}
+          isAuthenticated={authReady}
+          userLabel={userDisplayName}
+          userTooltip={authTooltip}
+          accountId={accountIdentifier}
+          onLogin={handleLogin}
+          onLogout={handleLogout}
+          canManageBudgets={hasAdminAccess()}
+          budgetWarning={budgetWarning}
+        />
 
-      {authReady ? (
-        <div className="account-banner">
-          <span>
-            Zalogowano jako <strong>{userDisplayName || 'Użytkownik'}</strong>
-          </span>
-          {accountIdentifier ? (
-            <span>
-              Konto: <strong>{accountIdentifier}</strong>
-            </span>
-          ) : null}
-          {normalizedRoles.length > 0 ? (
-            <span>Role: {normalizedRoles.join(', ')}</span>
-          ) : null}
-          <button type="button" className="account-banner-action" onClick={handleLogout}>
-            Wyloguj
-          </button>
+        <div className="sticky top-6 z-20">
+          <SessionContextBar context={sessionContext} />
+        </div>
+
+        {authReady ? (
+          <div className="glass-panel flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm text-slate-200">
+            <div className="flex flex-wrap items-center gap-3">
+              <span>
+                Zalogowano jako <strong>{userDisplayName || 'Użytkownik'}</strong>
+              </span>
+              {accountIdentifier ? (
+                <span>
+                  Konto: <strong>{accountIdentifier}</strong>
+                </span>
+              ) : null}
+              {usageSummary && Number.isFinite(usageSummary.costUsd) ? (
+                <span className="chip chip-primary">Koszt sesji: ${usageSummary.costUsd.toFixed(4)}</span>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-200 transition hover:border-danger/40 hover:bg-danger/20 hover:text-danger"
+            >
+              Wyloguj
+            </button>
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="rounded-2xl border border-danger/40 bg-danger/15 px-4 py-3 text-sm text-danger">
+            {error}
+          </div>
+        ) : null}
+
+        <div className="flex flex-1 flex-col gap-6 lg:flex-row">
+          <section className="flex min-h-0 flex-1 flex-col">
+            <MessageList
+              messages={[...history, ...pendingMessages]}
+              toolResults={toolResults}
+              assistantToolCounts={assistantToolCounts}
+              onSelectToolResult={setSelectedToolResult}
+              inlineSummaryFormatter={formatInlineSummary}
+              toolDetailsFormatter={formatInlinePretty}
+              isBusy={isBusy}
+              fontScale={fontScale}
+              showInlineTools={showInlineTools}
+            />
+          </section>
+          <div className="hidden lg:block lg:w-80 lg:flex-shrink-0">
+            <ToolDock
+              open={isToolsOpen}
+              groups={toolGroups}
+              history={toolResults}
+              favorites={favoriteToolKeys}
+              onToggleFavorite={toggleFavoriteTool}
+              onSelectTool={handleSelectTool}
+            />
+          </div>
+        </div>
+
+        <ChatInput disabled={isRestoring || !authReady} busy={isBusy} onSubmit={sendMessage} />
+      </div>
+
+      {isToolsOpen ? (
+        <div className="fixed inset-0 z-40 flex items-stretch lg:hidden" onClick={() => setIsToolsOpen(false)}>
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" />
+          <div className="h-full w-80 bg-surface px-4 py-6" onClick={(event) => event.stopPropagation()}>
+            <ToolDock
+              open
+              groups={toolGroups}
+              history={toolResults}
+              favorites={favoriteToolKeys}
+              onToggleFavorite={toggleFavoriteTool}
+              onSelectTool={handleSelectTool}
+            />
+          </div>
         </div>
       ) : null}
 
-      {error ? <div className="error-banner">{error}</div> : null}
+      {isSessionDrawerOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={closeSessionsDrawer}>
+          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
+              <div>
+                <div className="text-lg font-semibold text-white">Zapisane sesje</div>
+                <div className="text-sm text-slate-400">Wybierz rozmowę, aby ją przywrócić</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300 hover:border-white/30 hover:bg-white/10"
+                onClick={closeSessionsDrawer}
+              >
+                Zamknij
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-4 space-y-3 scrollbar-thin">
+              {isSessionsLoading ? <div className="chip chip-muted">Ładowanie…</div> : null}
+              {sessionsError ? <div className="rounded-2xl border border-danger/40 bg-danger/15 px-4 py-2 text-sm text-danger">{sessionsError}</div> : null}
+              {sessionSummaries.length === 0 && !isSessionsLoading ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">Brak zapisanych rozmów</div>
+              ) : null}
+              {sessionSummaries.map((summary) => {
+                const isActive = summary.id === sessionId;
+                const previewLabel = formatSessionPreviewLabel(summary);
+                const rawPreview = summary.lastMessagePreview?.trim() ?? '';
+                const previewText = rawPreview.length > 0 ? rawPreview : 'Brak treści';
+                const updatedLabel = formatSessionTimestamp(summary.updatedAt ?? summary.lastMessageAt);
+                return (
+                  <div
+                    key={summary.id}
+                    className={`rounded-2xl border px-5 py-4 transition ${isActive ? 'border-primary/50 bg-primary/10' : 'border-white/5 bg-white/5 hover:border-white/15 hover:bg-white/10'}`}
+                  >
+                    <div className="flex items-center justify-between text-sm text-slate-300">
+                      <span className="font-semibold text-white">Sesja {summary.id.slice(0, 8)}</span>
+                      <span className="text-xs text-slate-400">{updatedLabel}</span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      {summary.messageCount} wiadomości • {summary.toolResultCount} wywołań MCP
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-slate-200" title={previewText}>
+                      <strong>{previewLabel}:</strong> {previewText}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSession(summary.id)}
+                        disabled={isActive}
+                        className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-primary/40 hover:bg-primary/20 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isActive ? 'Otwarta' : 'Otwórz'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
-      <MessageList
-        messages={[...history, ...pendingMessages]}
-        toolResults={toolResults}
-        assistantToolCounts={assistantToolCounts}
-        onSelectToolResult={setSelectedToolResult}
-        inlineSummaryFormatter={formatInlineSummary}
-        isBusy={isBusy}
-        fontScale={fontScale}
-        showInlineTools={showInlineTools}
-      />
+      {isHistoryOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={() => setIsHistoryOpen(false)}>
+          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
+              <div>
+                <div className="text-lg font-semibold text-white">Historia narzędzi</div>
+                <div className="text-sm text-slate-400">Ostatnie {Math.min(toolResults.length, 20)} wpisów</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300 hover:border-white/30 hover:bg-white/10"
+                onClick={() => setIsHistoryOpen(false)}
+              >
+                Zamknij
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto px-6 py-4 space-y-3 scrollbar-thin">
+              {toolResults.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">Brak wywołań narzędzi.</div>
+              ) : (
+                toolResults
+                  .slice(-20)
+                  .reverse()
+                  .map((entry, idx) => {
+                    const summary = formatInlineSummary(entry);
+                    const pretty = formatInlinePretty(entry);
+                    return (
+                      <div key={`${entry.name}-${idx}`} className="rounded-2xl border border-white/5 bg-white/5 px-5 py-4">
+                        <div className="flex items-center justify-between text-sm text-slate-300">
+                          <span className="font-semibold text-white">{entry.name}</span>
+                          {entry.timestamp ? (
+                            <span className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</span>
+                          ) : null}
+                        </div>
+                        <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-2xl bg-surface/80 px-4 py-3 text-xs text-slate-200">
+                          {pretty}
+                        </pre>
+                        <div className="mt-3 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedToolResult(entry);
+                              setIsHistoryOpen(false);
+                            }}
+                            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-wide text-slate-200 transition hover:border-primary/40 hover:bg-primary/20 hover:text-primary"
+                          >
+                            Szczegóły
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
-      <ChatInput
-        disabled={isRestoring || !authReady}
-        busy={isBusy}
-        onSubmit={sendMessage}
-        onCancel={() => {
-          const ctrl = streamAbortRef.current;
-          if (ctrl) {
-            ctrl.abort();
-            setError('Anulowano.');
-            setIsBusy(false);
-          }
-        }}
-      />
+      {selectedToolResult ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={() => setSelectedToolResult(null)}>
+          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
+              <div>
+                <div className="text-lg font-semibold text-white">{selectedToolResult.name}</div>
+                <div className="text-sm text-slate-400">
+                  Args: {formatArgs(selectedToolResult.args)}
+                  {selectedToolResult.timestamp ? ` • ${new Date(selectedToolResult.timestamp).toLocaleString()}` : ''}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300 hover:border-white/30 hover:bg-white/10"
+                onClick={() => setSelectedToolResult(null)}
+              >
+                Zamknij
+              </button>
+            </div>
+            <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words px-6 py-4 text-sm text-slate-200">
+              {formatResult(selectedToolResult.result)}
+            </pre>
+          </div>
+        </div>
+      ) : null}
 
-      {isToolsOpen ? (
-        <ToolGroupsPanel
-          groups={toolGroups}
-          isError={Boolean(toolsQuery.isError)}
-          isLoading={toolsQuery.isLoading}
-          onSelectGroup={(group) => setSelectedToolGroupId(group.serverId)}
-        />
+      {selectedToolInfo ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={() => setSelectedToolInfo(null)}>
+          <div className="glass-panel w-full max-w-xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
+              <div>
+                <div className="text-lg font-semibold text-white">{selectedToolInfo.name}</div>
+                <div className="text-sm text-slate-400">Serwer: {selectedToolInfo.serverId}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-slate-300 hover:border-white/30 hover:bg-white/10"
+                onClick={() => setSelectedToolInfo(null)}
+              >
+                Zamknij
+              </button>
+            </div>
+            <div className="px-6 py-4 text-sm text-slate-200">
+              {selectedToolInfo.description ? selectedToolInfo.description : 'Brak dodatkowego opisu dla tego narzędzia.'}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {hasAdminAccess() ? (
@@ -1046,183 +1335,6 @@ function AppContent() {
           onDelete={handleDeleteBudget}
           evaluation={budgetEvaluation}
         />
-      ) : null}
-
-      {isSessionDrawerOpen ? (
-        <div className="drawer-backdrop" onClick={closeSessionsDrawer}>
-          <div className="drawer session-drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <div className="drawer-title">Zapisane sesje</div>
-                <div className="drawer-subtitle">Wybierz rozmowę, aby ją przywrócić</div>
-              </div>
-              <button type="button" className="drawer-close" onClick={closeSessionsDrawer}>
-                ×
-              </button>
-            </div>
-            {isSessionsLoading ? <div className="session-list-status">Ładowanie…</div> : null}
-            {sessionsError ? <div className="session-list-error">{sessionsError}</div> : null}
-            <div className="session-list">
-              {sessionSummaries.length === 0 && !isSessionsLoading ? (
-                <div className="session-list-empty">Brak zapisanych rozmów</div>
-              ) : null}
-              {sessionSummaries.map((summary) => {
-                const isActive = summary.id === sessionId;
-                const previewLabel = formatSessionPreviewLabel(summary);
-                const rawPreview = summary.lastMessagePreview?.trim() ?? '';
-                const previewText = rawPreview.length > 0 ? rawPreview : 'Brak treści';
-                const previewClass = rawPreview.length > 0
-                  ? 'session-entry-preview'
-                  : 'session-entry-preview session-entry-preview-empty';
-                const updatedLabel = formatSessionTimestamp(summary.updatedAt ?? summary.lastMessageAt);
-                return (
-                  <div key={summary.id} className={`session-entry${isActive ? ' active' : ''}`}>
-                    <div className="session-entry-header">
-                      <div className="session-entry-title">Sesja {summary.id.slice(0, 8)}</div>
-                      <div className="session-entry-time">{updatedLabel}</div>
-                    </div>
-                    <div className="session-entry-meta">
-                      {summary.messageCount} wiadomości • {summary.toolResultCount} wywołań MCP
-                    </div>
-                    <div className={previewClass} title={previewText}>
-                      <strong>{previewLabel}:</strong> {previewText}
-                    </div>
-                    <div className="session-entry-actions">
-                      <button type="button" onClick={() => handleSelectSession(summary.id)} disabled={isActive}>
-                        {isActive ? 'Otwarta' : 'Otwórz'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedToolGroup ? (
-        <div className="drawer-backdrop" onClick={() => setSelectedToolGroupId(null)}>
-          <div className="drawer tool-group-drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <div className="drawer-title">{formatServerLabel(selectedToolGroup.serverId)}</div>
-                <div className="drawer-subtitle">{formatGroupDescription(selectedToolGroup)}</div>
-              </div>
-              <button type="button" className="drawer-close" onClick={() => setSelectedToolGroupId(null)}>
-                ×
-              </button>
-            </div>
-            <div className="tools-grid">
-              {selectedToolGroup.tools.map((tool) => {
-                const shortDesc = tool.description?.trim() ?? '';
-                return (
-                  <button
-                    key={tool.name}
-                    type="button"
-                    className="tool-card"
-                    onClick={() => setSelectedToolInfo(tool)}
-                  >
-                    <div className="tool-card-name">{tool.name}</div>
-                    {shortDesc ? <div className="tool-card-desc">{shortDesc}</div> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {isHistoryOpen ? (
-        <div className="drawer-backdrop" onClick={() => setIsHistoryOpen(false)}>
-          <div className="drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <div className="drawer-title">Historia wywołań narzędzi</div>
-                <div className="drawer-subtitle">Ostatnie {Math.min(toolResults.length, 20)} wpisów</div>
-              </div>
-              <button type="button" className="drawer-close" onClick={() => setIsHistoryOpen(false)}>
-                ×
-              </button>
-            </div>
-            <div className="tool-history-list">
-              {toolResults.length === 0 ? (
-                <div className="tool-results-empty">Brak wywołań narzędzi.</div>
-              ) : (
-                toolResults
-                  .slice(-20)
-                  .reverse()
-                  .map((entry, idx) => {
-                    const summary = formatInlineSummary(entry);
-                    const pretty = formatInlinePretty(entry);
-                    return (
-                      <div key={`${entry.name}-${idx}`} className="tool-history-entry">
-                        <div className="tool-history-meta">
-                          <span className="tool-history-name">{entry.name}</span>
-                          {entry.timestamp ? (
-                            <span className="tool-history-time">{new Date(entry.timestamp).toLocaleString()}</span>
-                          ) : null}
-                        </div>
-                        <pre className="tool-history-preview">{pretty}</pre>
-                        <div className="tool-history-actions">
-                          <button type="button" onClick={() => {
-                            setSelectedToolResult(entry);
-                            setIsHistoryOpen(false);
-                          }}>
-                            Szczegóły
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedToolResult ? (
-        <div className="drawer-backdrop" onClick={() => setSelectedToolResult(null)}>
-          <div className="drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <div className="drawer-title">Called {selectedToolResult.name}</div>
-                <div className="drawer-subtitle">
-                  Args: {formatArgs(selectedToolResult.args)}
-                  {selectedToolResult.timestamp
-                    ? ` • ${new Date(selectedToolResult.timestamp).toLocaleString()}`
-                    : ''}
-                </div>
-              </div>
-              <button type="button" className="drawer-close" onClick={() => setSelectedToolResult(null)}>
-                ×
-              </button>
-            </div>
-            <pre className="drawer-content">{formatResult(selectedToolResult.result)}</pre>
-          </div>
-        </div>
-      ) : null}
-
-      {selectedToolInfo ? (
-        <div className="drawer-backdrop" onClick={() => setSelectedToolInfo(null)}>
-          <div className="drawer" onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <div className="drawer-title">{selectedToolInfo.name}</div>
-                <div className="drawer-subtitle">Serwer: {selectedToolInfo.serverId}</div>
-              </div>
-              <button type="button" className="drawer-close" onClick={() => setSelectedToolInfo(null)}>
-                ×
-              </button>
-            </div>
-            <div className="tool-info-content">
-              {selectedToolInfo.description ? (
-                <p>{selectedToolInfo.description}</p>
-              ) : (
-                <p>Brak dodatkowego opisu dla tego narzędzia.</p>
-              )}
-            </div>
-          </div>
-        </div>
       ) : null}
     </div>
   );
@@ -1302,4 +1414,230 @@ function extractUsageSummary(value: any): UsageSummary | null {
     };
   }
   return null;
+}
+
+function computeAssistantToolCounts(messages: ChatMessage[], toolHistory: ToolInvocation[]): number[] {
+  const assistantMessages = messages.filter((msg) => msg.role === 'assistant');
+  if (assistantMessages.length === 0) {
+    return [];
+  }
+
+  if (toolHistory.length === 0) {
+    return new Array(assistantMessages.length).fill(0);
+  }
+
+  const assistantTimeline = assistantMessages
+    .map((msg, idx) => ({ idx, timestamp: parseTimestampSafely(msg.timestamp, idx) }))
+    .sort((a, b) => a.timestamp - b.timestamp || a.idx - b.idx);
+
+  const counts = new Array(assistantMessages.length).fill(0);
+
+  const toolTimeline = toolHistory
+    .map((tool, idx) => ({ idx, timestamp: parseTimestampSafely(tool.timestamp, -1_000_000 + idx) }))
+    .sort((a, b) => a.timestamp - b.timestamp || a.idx - b.idx);
+
+  for (const entry of toolTimeline) {
+    const target = assistantTimeline.find((assistant) => entry.timestamp <= assistant.timestamp)
+      ?? assistantTimeline[assistantTimeline.length - 1];
+    counts[target.idx] += 1;
+  }
+
+  return counts;
+}
+
+function parseTimestampSafely(value: string | undefined, fallback: number): number {
+  if (value) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+type SessionMetrics = {
+  location?: string | null;
+  from?: string | null;
+  to?: string | null;
+  gross?: number | null;
+  net?: number | null;
+  receipts?: number | null;
+  timestamp?: string | null;
+};
+
+function SessionContextBar({ context }: { context: SessionMetrics & { model: string } }) {
+  const period = formatSessionPeriodLabel(context.from, context.to) ?? 'Bieżący okres';
+  const updateLabel = context.timestamp
+    ? new Intl.DateTimeFormat('pl-PL', { hour: '2-digit', minute: '2-digit' }).format(new Date(context.timestamp))
+    : null;
+
+  return (
+    <div className="glass-panel mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-5 py-3">
+      <span className="chip chip-accent">Model: {context.model}</span>
+      <span className="chip">{context.location ?? 'Brak lokalizacji'}</span>
+      <span className="chip chip-muted">Okres: {period}</span>
+      <span className="chip chip-primary">Brutto: {formatPln(context.gross)}</span>
+      <span className="chip chip-primary">Netto: {formatPln(context.net)}</span>
+      <span className="chip chip-primary">Paragony: {formatReceipts(context.receipts)}</span>
+      {updateLabel ? <span className="chip chip-muted">Aktualizacja: {updateLabel}</span> : null}
+    </div>
+  );
+}
+
+function deriveSessionInsights(toolResults: ToolInvocation[]): SessionMetrics | null {
+  for (let index = toolResults.length - 1; index >= 0; index -= 1) {
+    const tool = toolResults[index];
+    const result = tool.result as any;
+    if (!result || typeof result !== 'object') {
+      continue;
+    }
+
+    const location = extractLocation(tool);
+    const from = typeof result.from === 'string' ? result.from : typeof result.window?.from === 'string' ? result.window.from : undefined;
+    const to = typeof result.to === 'string' ? result.to : typeof result.window?.to === 'string' ? result.window.to : undefined;
+
+    const summary = typeof result.summary === 'object' && result.summary !== null ? result.summary : undefined;
+    const totals = typeof result.totals === 'object' && result.totals !== null ? result.totals : undefined;
+
+    const gross = parseMetricNumber(
+      result.gross ??
+        summary?.gross_expenditures_total ??
+        summary?.gross ??
+        totals?.gross ??
+        totals?.grossTotal,
+    );
+    const net = parseMetricNumber(
+      result.net ??
+        summary?.net_expenditures_total ??
+        summary?.net ??
+        totals?.net ??
+        totals?.netTotal,
+    );
+    let receipts = parseMetricNumber(result.receipts ?? summary?.receipt_count ?? summary?.receipts ?? totals?.receipts);
+    if (receipts === null && Array.isArray(result.entries)) {
+      receipts = result.entries.length;
+    }
+
+    const metrics: SessionMetrics = {
+      location,
+      from: from ?? null,
+      to: to ?? null,
+      gross,
+      net,
+      receipts,
+      timestamp: tool.timestamp ?? null,
+    };
+
+    const hasData = Object.values(metrics).some((value) => value !== null && value !== undefined);
+    if (hasData) {
+      return metrics;
+    }
+  }
+  return null;
+}
+
+function extractLocation(tool: ToolInvocation): string | null {
+  const result = tool.result as any;
+  if (typeof result?.location === 'string' && result.location.trim().length > 0) {
+    return result.location.trim();
+  }
+  if (result?.meta && typeof result.meta === 'object' && typeof result.meta.location === 'string') {
+    const candidate = result.meta.location.trim();
+    if (candidate.length > 0) {
+      return candidate;
+    }
+  }
+  if (tool.args && typeof tool.args === 'object' && tool.args !== null) {
+    const candidate = (tool.args as Record<string, unknown>).location;
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return null;
+}
+
+function formatSessionPeriodLabel(from?: string | null, to?: string | null): string | null {
+  const fromDate = parseIsoDate(from);
+  const toDate = parseIsoDate(to);
+
+  if (!fromDate && !toDate) {
+    return null;
+  }
+
+  const formatter = new Intl.DateTimeFormat('pl-PL', { dateStyle: 'medium' });
+
+  if (fromDate && toDate) {
+    if (fromDate.getTime() === toDate.getTime()) {
+      return describeRelativeDay(fromDate) ?? formatter.format(fromDate);
+    }
+    return `${formatter.format(fromDate)} → ${formatter.format(toDate)}`;
+  }
+
+  const single = fromDate ?? toDate;
+  if (!single) {
+    return null;
+  }
+  return describeRelativeDay(single) ?? formatter.format(single);
+}
+
+function describeRelativeDay(date: Date): string | null {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+
+  const diffMs = target.getTime() - today.getTime();
+  const oneDay = 24 * 60 * 60 * 1000;
+
+  if (Math.abs(diffMs) < oneDay / 2) {
+    return 'Dziś';
+  }
+  if (Math.abs(diffMs + oneDay) < oneDay / 2) {
+    return 'Wczoraj';
+  }
+  if (Math.abs(diffMs - oneDay) < oneDay / 2) {
+    return 'Jutro';
+  }
+  return null;
+}
+
+function formatPln(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+  return new Intl.NumberFormat('pl-PL', {
+    style: 'currency',
+    currency: 'PLN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatReceipts(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return '—';
+  }
+  return new Intl.NumberFormat('pl-PL').format(value);
+}
+
+function parseMetricNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function parseIsoDate(value?: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return new Date(parsed);
 }

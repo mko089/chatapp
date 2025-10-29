@@ -5,25 +5,33 @@ interface StatusBadgeProps {
 }
 
 export function StatusBadge({ label, status, description }: StatusBadgeProps) {
-  const colors = {
-    ok: { background: 'rgba(34,197,94,0.2)', border: 'rgba(34,197,94,0.45)', text: '#bbf7d0' },
-    error: { background: 'rgba(248,113,113,0.2)', border: 'rgba(248,113,113,0.4)', text: '#fecaca' },
-    loading: { background: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.25)', text: '#bfdbfe' },
-  }[status];
+  const palette: Record<StatusBadgeProps['status'], { wrapper: string; dot: string; text: string }> = {
+    ok: {
+      wrapper: 'border-emerald-400/40 bg-emerald-400/15',
+      dot: 'bg-emerald-400 shadow-[0_0_6px_rgba(34,197,94,0.8)]',
+      text: 'text-emerald-200',
+    },
+    error: {
+      wrapper: 'border-danger/40 bg-danger/15',
+      dot: 'bg-danger shadow-[0_0_6px_rgba(248,113,113,0.8)]',
+      text: 'text-danger',
+    },
+    loading: {
+      wrapper: 'border-accent/40 bg-accent/10',
+      dot: 'bg-accent shadow-[0_0_6px_rgba(96,165,250,0.8)]',
+      text: 'text-accent',
+    },
+  };
+
+  const colors = palette[status];
 
   return (
     <div
-      className="status-badge"
-      style={{
-        background: colors.background,
-        border: `1px solid ${colors.border}`,
-        color: colors.text,
-      }}
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide ${colors.wrapper} ${colors.text}`}
       title={description}
     >
-      <span className="dot" data-status={status} />
+      <span className={`h-2.5 w-2.5 rounded-full ${colors.dot}`} />
       <span>{label}</span>
     </div>
   );
 }
-
