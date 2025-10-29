@@ -885,9 +885,18 @@ function AppContent() {
       timeStyle: 'medium',
     });
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC';
+    const { from, to } = computeUiPeriodRange(uiPeriod);
+    const contextLines: string[] = [];
+    contextLines.push(`Aktualny czas użytkownika: ${localeFormatter.format(now)} (strefa ${timeZone})`);
+    if (uiLocation) {
+      contextLines.push(`Domyślna lokalizacja: ${uiLocation}`);
+    }
+    if (from && to) {
+      contextLines.push(`Domyślny okres: ${from} → ${to}`);
+    }
     const contextMessage: ChatMessage = {
       role: 'system',
-      content: `Aktualny czas użytkownika: ${localeFormatter.format(now)} (strefa ${timeZone})`,
+      content: contextLines.join('\n'),
       timestamp: now.toISOString(),
     };
     setPendingMessages((prev) => [...prev, userMessage]);
@@ -1563,6 +1572,27 @@ function formatHumanLocation(value: string): string {
   return value
     .replace(/[_-]/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function computeUiPeriodRange(p: 'today' | 'yesterday' | '7d'): { from: string | null; to: string | null } {
+  const today = new Date();
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const clone = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (p === 'today') {
+    const d = clone(today);
+    const s = ymd(d);
+    return { from: s, to: s };
+  }
+  if (p === 'yesterday') {
+    const d = clone(today);
+    d.setDate(d.getDate() - 1);
+    const s = ymd(d);
+    return { from: s, to: s };
+  }
+  const end = clone(today);
+  const start = clone(today);
+  start.setDate(start.getDate() - 6);
+  return { from: ymd(start), to: ymd(end) };
 }
 
 function deriveSessionInsights(toolResults: ToolInvocation[]): SessionMetrics | null {

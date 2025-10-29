@@ -109,6 +109,7 @@ export function ToolDock({ open, groups, history, favorites, onToggleFavorite, o
               isFavorite={favorites.includes(buildKey(tool))}
               onSelect={() => onSelectTool(tool)}
               onToggleFavorite={() => onToggleFavorite(buildKey(tool))}
+              term={query}
             />
           ))}
         </Section>
@@ -129,6 +130,7 @@ export function ToolDock({ open, groups, history, favorites, onToggleFavorite, o
                         isFavorite={favorites.includes(buildKey(tool))}
                         onSelect={() => onSelectTool(tool)}
                         onToggleFavorite={() => onToggleFavorite(buildKey(tool))}
+                        term={query}
                       />
                     ))}
                   </div>
@@ -222,4 +224,21 @@ function fuzzyScore(text: string, rawTerm: string): number {
   if (hits < Math.ceil(term.length * 0.6)) return 0;
   const density = hits / Math.max(1, hay.length);
   return Math.min(75, Math.round(40 + hits * 5 + density * 100));
+}
+
+function highlightSimple(text: string, term?: string) {
+  if (!term) return text;
+  const hay = text || '';
+  const idx = hay.toLowerCase().indexOf(term.trim().toLowerCase());
+  if (idx === -1) return text;
+  const before = hay.slice(0, idx);
+  const match = hay.slice(idx, idx + term.length);
+  const after = hay.slice(idx + term.length);
+  return (
+    <>
+      {before}
+      <mark className="rounded bg-white/10 px-0.5 text-inherit">{match}</mark>
+      {after}
+    </>
+  );
 }
