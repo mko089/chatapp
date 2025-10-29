@@ -3,17 +3,10 @@ services:
     image: node:20.19
     working_dir: /workspace/chatapp
     command: >-
-      bash -lc "npm install && \
-      (cd ../metersapp/apps/meters-mcp && npm install && npm run build) && \
-      (cd ../EmployeeApp/apps/employee-mcp && npm install && npm run build) && \
-      (cd ../FinCostApp/apps/fincost-mcp && npm install && npm run build) && \
-      (cd ../gardenknowledge/apps/garden-mcp && npm install && npm run build) && \
-      (cd ../posbistroapi && npm install && npm run build) && \
-      (cd ../keycloak-mcp && npm install && npm run build) && \
-      npm run build --workspace backend && \
-      npm run start --workspace backend"
+      bash -lc "npm install && npm run build --workspace backend && npm run start --workspace backend"
     environment:
       NODE_ENV: production
+      NPM_CONFIG_PRODUCTION: "false"
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-5}
       LLM_MODELS: ${LLM_MODELS:-gpt-5,gpt-5-mini,gpt-5-nano,gpt-4o-mini,gpt-4.1-mini}
@@ -21,7 +14,10 @@ services:
       PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0}
       COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0}
       ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
-      MCP_CONFIG: backend/mcp.config.json
+      RBAC_ENABLED: ${RBAC_ENABLED:-true}
+      RBAC_OWNER_USERS: ${RBAC_OWNER_USERS:-marcin,marcin@garden.local}
+      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-allow}
+      MCP_CONFIG: mcp.config.json
       PORT: 3025
     volumes:
       - ..:/workspace:cached
@@ -32,9 +28,10 @@ services:
     image: node:20.19
     working_dir: /workspace/chatapp
     command: >-
-      bash -lc "npm install && npm run build --workspace frontend && npm run preview --workspace frontend"
+      bash -lc "npm install && npm exec -w frontend vite build && npm exec -w frontend vite preview -- --host 0.0.0.0 --port 4173"
     environment:
       NODE_ENV: production
+      NPM_CONFIG_PRODUCTION: "false"
       VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://192.168.14.55:3025}
     volumes:
       - ..:/workspace:cached

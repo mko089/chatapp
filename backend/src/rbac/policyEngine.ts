@@ -28,7 +28,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   manager: {
     name: 'manager',
     allowedModels: ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini'],
-    allowedServers: ['meters', 'employee', 'garden', 'fincost'],
+    allowedServers: ['meters', 'employee', 'garden', 'fincost', 'datetime'],
     deniedTools: [
       '*_delete_*',
       '*_full_*',
@@ -40,7 +40,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   analyst: {
     name: 'analyst',
     allowedModels: ['gpt-5-mini', 'gpt-5-nano', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o-mini'],
-    allowedServers: ['meters', 'employee', 'garden'],
+    allowedServers: ['meters', 'employee', 'garden', 'datetime'],
     deniedTools: [
       '*_set_*',
       '*_update_*',
@@ -55,7 +55,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   viewer: {
     name: 'viewer',
     allowedModels: ['gpt-5-nano', 'gpt-4.1-nano', 'gpt-4o-mini'],
-    allowedServers: ['garden', 'meters'],
+    allowedServers: ['garden', 'meters', 'datetime'],
     deniedTools: [
       '*_set_*',
       '*_update_*',

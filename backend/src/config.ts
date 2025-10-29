@@ -4,7 +4,9 @@ import { z } from 'zod';
 
 loadEnv();
 
-const allowedIpsFromEnv = (process.env.ALLOWED_IPS ?? '192.168.2.145,192.168.4.170')
+const isProd = (process.env.NODE_ENV ?? 'development') === 'production';
+const defaultAllowedIps = isProd ? '192.168.2.145,192.168.4.170' : '*';
+const allowedIpsFromEnv = (process.env.ALLOWED_IPS ?? defaultAllowedIps)
   .split(',')
   .map((ip) => ip.trim())
   .filter((ip) => ip.length > 0);

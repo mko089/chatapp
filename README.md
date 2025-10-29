@@ -6,21 +6,31 @@ Monorepo składające się z backendu (`backend/`, dawny `chatapi`) oraz fronten
 - `backend/` — serwis Fastify + OpenAI + MCP (ścieżki i dokumentacja w `backend/README.md`).
 - `frontend/` — aplikacja Vite/React (UI chatu + lista narzędzi/wyników).
 - `docs/` — plan MVP, architektura, integracja MCP.
-- `docker-compose.dev.yml` / `docker-compose.prod.yml` — uruchamianie środowiskowe.
+- `docker-compose.yml` / `docker-compose.prod.yml` — uruchamianie środowiskowe.
 
 ## Uruchomienie
 
 ### Dev (watch + stdio MCP)
 ```bash
 cd chatapp
-docker compose -f docker-compose.dev.yml up --build
+./scripts/dev-up.sh
+```
+
+Gdy chcesz udostępnić UI z innego urządzenia w LAN (bez `localhost`):
+```bash
+cd chatapp
+CHATAPP_HOST=192.168.14.55 ./scripts/dev-up-lan.sh
 ```
 
 To polecenie:
 - instaluje zależności monorepo (`npm install`),
 - przygotowuje serwer MCP `meters` (`../metersapp/apps/meters-mcp`),
-- startuje backend na porcie `4025` oraz frontend na porcie `4225` (domyślny adres LAN: `http://192.168.14.55`).
-- przepuszcza ruch tylko z adresów zdefiniowanych w `ALLOWED_IPS` (domyślnie `192.168.2.145,192.168.4.170`).
+- startuje backend na porcie `4025` oraz frontend na porcie `4225` (lokalnie: `http://localhost`).
+- domyślnie w dev przepuszcza ruch z dowolnego IP (`ALLOWED_IPS=*`) i udostępnia publicznie `GET /health`, `GET /mcp/tools`, `GET /sessions`, `GET /metrics/cost`.
+
+Przydatne:
+- zatrzymanie: `./scripts/dev-down.sh`
+- logi: `./scripts/dev-logs.sh`
 - frontend zapisuje identyfikator sesji w URL (`?session=<uuid>`), a `GET /sessions/:id` pozwala wczytać rozmowę.
 
 ### Prod (kompilacja + start)

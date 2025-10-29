@@ -137,7 +137,7 @@ function isPublicPath(pathname: string, method: string): boolean {
   }
 
   const target = pathname.toLowerCase();
-  const targetWithMethod = `${method.toUpperCase()} ${target}`;
+  const targetWithMethod = `${method.toLowerCase()} ${target}`;
 
   return publicPathPatterns.some((pattern) => {
     const candidate = pattern.toLowerCase();

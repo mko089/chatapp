@@ -1033,7 +1033,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl flex-col gap-6 px-4 pb-32 pt-6">
+      <div className="mx-auto flex min-h-screen w-full max-w-screen-2xl flex-col gap-6 px-4 pb-32 pt-6">
         <AppHeader
           isBusy={isBusy}
           isRestoring={isRestoring}
@@ -1157,7 +1157,7 @@ function AppContent() {
 
       {isSessionDrawerOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={closeSessionsDrawer}>
-          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+          <div className="glass-panel w-full max-w-4xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
               <div>
                 <div className="text-lg font-semibold text-white">Zapisane sesje</div>
@@ -1218,7 +1218,7 @@ function AppContent() {
 
       {isHistoryOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={() => setIsHistoryOpen(false)}>
-          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+          <div className="glass-panel w-full max-w-4xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
               <div>
                 <div className="text-lg font-semibold text-white">Historia narzędzi</div>
@@ -1276,7 +1276,7 @@ function AppContent() {
 
       {selectedToolResult ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={() => setSelectedToolResult(null)}>
-          <div className="glass-panel w-full max-w-3xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
+          <div className="glass-panel w-full max-w-4xl overflow-hidden" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-white/5 px-6 py-4">
               <div>
                 <div className="text-lg font-semibold text-white">{selectedToolResult.name}</div>
@@ -1472,7 +1472,7 @@ function SessionContextBar({ context }: { context: SessionMetrics & { model: str
     : null;
 
   return (
-    <div className="glass-panel mx-auto flex w-full max-w-3xl flex-wrap items-center gap-2 px-5 py-3">
+    <div className="glass-panel mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2 px-5 py-3">
       <span className="chip chip-accent">Model: {context.model}</span>
       <span className="chip">{context.location ?? 'Brak lokalizacji'}</span>
       <span className="chip chip-muted">Okres: {period}</span>

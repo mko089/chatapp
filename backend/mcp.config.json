@@ -10,16 +10,18 @@
         "NODE_ENV": "production",
         "METERS_API_URL": "http://192.168.14.55:3003"
       },
-      "allowedTools": [
-        "meters_health",
-        "meters_metrics",
-        "meters_list_meters",
-        "meters_list_readings",
-        "meters_daily_consumption",
-        "meters_list_departments",
-        "meters_list_locations"
-      ],
       "defaultTimeoutMs": 15000
+    },
+    {
+      "id": "datetime",
+      "transport": "stdio",
+      "command": "./scripts/run-datetime-mcp.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "defaultTimeoutMs": 5000
     },
     {
       "id": "employee",
@@ -32,13 +34,6 @@
         "EMPLOYEE_API_TOKEN": "",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "blockedTools": [
-        "*_create_*",
-        "*_update_*",
-        "*_delete_*",
-        "*_upsert_*",
-        "*_patch_*"
-      ],
       "defaultTimeoutMs": 20000
     },
     {
@@ -52,12 +47,6 @@
         "FINCOST_API_KEY": "dev-secret-key",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "blockedTools": [
-        "*_add_*",
-        "*_update_*",
-        "*_delete_*",
-        "*_full_payoff*"
-      ],
       "defaultTimeoutMs": 20000
     },
     {
@@ -71,11 +60,6 @@
         "GARDEN_ROLE": "admin",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "blockedTools": [
-        "*_delete_*",
-        "*_update_*",
-        "*_create_*"
-      ],
       "defaultTimeoutMs": 20000
     },
     {
@@ -88,11 +72,6 @@
         "API_BASE": "http://192.168.14.55:3005",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "blockedTools": [
-        "*_delete_*",
-        "*_update_*",
-        "*_create_*"
-      ],
       "defaultTimeoutMs": 20000
     },
     {
@@ -108,11 +87,6 @@
         "KC_TOKEN_REALM": "master",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "blockedTools": [
-        "*_delete_*",
-        "*_update_*",
-        "*_create_*"
-      ],
       "defaultTimeoutMs": 20000
     }
   ]

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { loadSession, listSessions } from '../storage/sessionStore.js';
+import { loadSession, listSessions, saveSession } from '../storage/sessionStore.js';
 
 const SessionParamsSchema = z.object({
   id: z.string().min(1),
@@ -29,10 +29,15 @@ export async function registerSessionRoutes(app: FastifyInstance<any>) {
       return { error: 'Invalid session id', details: parsed.error.issues };
     }
 
-    const session = await loadSession(parsed.data.id);
+    const id = parsed.data.id;
+    const session = await loadSession(id);
     if (!session) {
-      reply.status(404);
-      return { error: 'Session not found' };
+      const now = new Date().toISOString();
+      const stub = { id, messages: [], toolResults: [], createdAt: now, updatedAt: now };
+      try {
+        await saveSession(stub);
+      } catch {}
+      return stub;
     }
 
     return session;

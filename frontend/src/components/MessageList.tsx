@@ -30,7 +30,7 @@ export function MessageList({
   if (messages.length === 0) {
     return (
       <div className="relative flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-3 px-6 py-20 text-center" style={scaleStyle}>
+        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-center justify-center gap-3 px-6 py-20 text-center" style={scaleStyle}>
           <div className="rounded-full border border-white/10 bg-white/5 px-4 py-1 text-xs uppercase tracking-wide text-slate-400">Gotowy do rozmowy</div>
           <p className="max-w-xl text-lg text-slate-300">
             Zacznij rozmowę, aby zobaczyć odpowiedzi asystenta i wyniki narzędzi MCP. Podpowiedz czego szukasz – np. obrotów Garden Bistro z wczoraj.
@@ -46,7 +46,7 @@ export function MessageList({
 
   return (
     <div className="relative flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-3xl flex-col space-y-3 px-4 pb-32 pt-8 leading-relaxed" style={scaleStyle}>
+      <div className="mx-auto flex w-full max-w-4xl flex-col space-y-3 px-4 pb-32 pt-8 leading-relaxed" style={scaleStyle}>
         {messages.map((message, idx) => {
           const nodes: JSX.Element[] = [];
 

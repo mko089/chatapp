@@ -59,7 +59,11 @@ export class MCPManager {
   async init() {
     this.config = await this.loadConfig();
     for (const server of this.config.servers) {
-      await this.startServer(server);
+      try {
+        await this.startServer(server);
+      } catch (error) {
+        logger.warn({ err: error, serverId: server.id }, 'Skipping failed MCP server and continuing');
+      }
     }
   }
 
@@ -88,7 +92,22 @@ export class MCPManager {
           throw new Error('Client does not support listing tools');
         }
         const response = await entry.client.listTools({});
-        const tools = Array.isArray(response?.tools) ? response.tools : response?.tools ?? [];
+        let tools = Array.isArray(response?.tools) ? response.tools : response?.tools ?? [];
+
+        // Fallback: if a minimal server fails to expose tool list, synthesize known definitions
+        if ((!tools || tools.length === 0) && serverId === 'datetime') {
+          tools = [
+            { name: 'datetime_now', description: 'Current date and time', inputSchema: { type: 'object', properties: { tz: { type: 'string' } } } },
+            { name: 'date_today', description: 'Today date with local start/end', inputSchema: { type: 'object', properties: { tz: { type: 'string' } } } },
+            { name: 'timeframe', description: 'Compute {from,to} for common presets', inputSchema: { type: 'object', properties: { preset: { type: 'string' }, tz: { type: 'string' } } } },
+            { name: 'iso_timestamp', description: 'UTC ISO timestamp now', inputSchema: { type: 'object', properties: {} } },
+            { name: 'week_range', description: 'Current week range (Mon–Sun)', inputSchema: { type: 'object', properties: { tz: { type: 'string' } } } },
+            { name: 'month_range', description: 'Month range (1..last day)', inputSchema: { type: 'object', properties: { year: { type: 'number' }, month: { type: 'number' }, tz: { type: 'string' } } } },
+            { name: 'timezone_offset', description: 'Timezone offset (±HH:MM, minutes)', inputSchema: { type: 'object', properties: { tz: { type: 'string' } } } },
+            { name: 'format_datetime', description: 'Format datetime with tokens', inputSchema: { type: 'object', properties: { iso: { type: 'string' }, tz: { type: 'string' }, pattern: { type: 'string' }, locale: { type: 'string' } } } },
+          ];
+        }
+
         const filtered = entry.config.allowedTools?.length
           ? tools.filter((tool: any) => entry.config.allowedTools?.includes(tool.name))
           : tools;
@@ -112,6 +131,23 @@ export class MCPManager {
         }
       } catch (error) {
         logger.error({ err: error, serverId }, 'Failed to list MCP tools');
+        // As a last resort, synthesize datetime tools if listing fails
+        if (serverId === 'datetime') {
+          for (const t of [
+            { name: 'datetime_now', description: 'Current date and time' },
+            { name: 'date_today', description: 'Today date with local start/end' },
+            { name: 'timeframe', description: 'Compute {from,to} for common presets' },
+            { name: 'iso_timestamp', description: 'UTC ISO timestamp now' },
+            { name: 'week_range', description: 'Current week range (Mon–Sun)' },
+            { name: 'month_range', description: 'Month range (1..last day)' },
+            { name: 'timezone_offset', description: 'Timezone offset (±HH:MM, minutes)' },
+            { name: 'format_datetime', description: 'Format datetime with tokens' },
+          ]) {
+            const encodedName = this.generateToolName(serverId, t.name);
+            this.toolNameMap.set(encodedName, { serverId, originalName: t.name });
+            defs.push({ name: encodedName, description: t.description, parameters: { type: 'object', properties: {} }, serverId, originalName: t.name });
+          }
+        }
       }
     }
 

@@ -36,7 +36,7 @@ export function ChatInput({ disabled, busy, onSubmit }: ChatInputProps) {
       className="pointer-events-auto sticky bottom-0 left-0 right-0 w-full bg-gradient-to-t from-surface via-surface/95 to-transparent"
       onSubmit={handleSubmit}
     >
-      <div className="mx-auto w-full max-w-3xl px-4 pb-8">
+      <div className="mx-auto w-full max-w-4xl px-4 pb-8">
         <div className="glass-panel flex flex-col gap-4 px-5 py-4">
           <textarea
             value={value}

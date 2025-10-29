@@ -23,25 +23,26 @@ services:
       CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-8}
       PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0.000005}
       COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0.000015}
-      ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
+      ALLOWED_IPS: ${ALLOWED_IPS:-*}
       DATABASE_FILE: ${DATABASE_FILE:-backend/data/chatapp.sqlite}
       POSTGRES_USER: ${POSTGRES_USER:-chatapp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp}
       POSTGRES_DB: ${POSTGRES_DB:-chatapp}
       POSTGRES_HOST: postgres
-      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://192.168.14.55:8080}
+      CHATAPP_HOST: ${CHATAPP_HOST:-192.168.14.55}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://${CHATAPP_HOST:-192.168.14.55}:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_BACKEND_CLIENT_ID:-chatapp-frontend}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-chatapp-frontend,account}
       KEYCLOAK_ACCOUNT_CLAIM: ${KEYCLOAK_ACCOUNT_CLAIM:-accountId}
       KEYCLOAK_ROLES_PATH: ${KEYCLOAK_ROLES_PATH:-realm_access.roles|resource_access.chatapp-frontend.roles}
       KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-true}
-      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health}
+      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health,GET /mcp/tools,GET /sessions,GET /sessions/*,GET /metrics/cost,POST /chat,POST /chat/stream}
       RBAC_ENABLED: ${RBAC_ENABLED:-true}
-      RBAC_DEFAULT_ROLES: ${RBAC_DEFAULT_ROLES:-viewer}
-      RBAC_FALLBACK_ROLES: ${RBAC_FALLBACK_ROLES:-viewer}
+      RBAC_DEFAULT_ROLES: ${RBAC_DEFAULT_ROLES:-owner}
+      RBAC_FALLBACK_ROLES: ${RBAC_FALLBACK_ROLES:-owner}
       RBAC_OWNER_USERS: ${RBAC_OWNER_USERS:-marcin,marcin@garden.local}
-      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-default}
+      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-allow}
     volumes:
       - ..:/workspace:cached
     ports:
@@ -58,12 +59,13 @@ services:
       bash -lc "npm install && npm run dev --workspace frontend"
     environment:
       NODE_ENV: development
-      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://localhost:4025}
+      CHATAPP_HOST: ${CHATAPP_HOST:-192.168.14.55}
+      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://${CHATAPP_HOST:-192.168.14.55}:4025}
       VITE_KEYCLOAK_ENABLED: ${VITE_KEYCLOAK_ENABLED:-true}
-      VITE_KEYCLOAK_URL: ${KEYCLOAK_URL:-http://192.168.14.55:8080}
+      VITE_KEYCLOAK_URL: ${KEYCLOAK_URL:-http://${CHATAPP_HOST:-192.168.14.55}:8080}
       VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
       VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-chatapp-frontend}
-      VITE_KEYCLOAK_SILENT_CHECK_SSO: ${VITE_KEYCLOAK_SILENT_CHECK_SSO:-http://192.168.14.55:4225/silent-check-sso.html}
+      VITE_KEYCLOAK_SILENT_CHECK_SSO: ${VITE_KEYCLOAK_SILENT_CHECK_SSO:-http://${CHATAPP_HOST:-192.168.14.55}:4225/silent-check-sso.html}
     ports:
       - "4225:4225"
     volumes:

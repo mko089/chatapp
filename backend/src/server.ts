@@ -55,7 +55,12 @@ async function bootstrap() {
   await initDatabase(config.databasePath);
 
   const mcpManager = new MCPManager(config.mcpConfigPath);
-  await mcpManager.init();
+  // Initialise MCP servers, but do not block backend startup if some fail
+  try {
+    await mcpManager.init();
+  } catch (error) {
+    logger.warn({ err: error }, 'Continuing without fully initialised MCP servers');
+  }
 
   const openAi = new OpenAI({ apiKey: config.openAiApiKey });
 

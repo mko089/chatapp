@@ -19,7 +19,7 @@ Domyślnie serwer developerski działa na `http://localhost:4225`. UI próbując
 - `npm run preview` — lokalny podgląd buildu (port 4173)
 
 ## Środowisko
-- `VITE_CHATAPI_URL` — pełny URL backendu (opcjonalnie, domyślnie `http://192.168.14.55:4025`).
+- `VITE_CHATAPI_URL` — pełny URL backendu (opcjonalnie, domyślnie `http://localhost:4025`).
 - `VITE_CHATAPI_PORT` — port backendu używany w fallbacku (domyślnie `4025`).
 
 ## Funkcje UI
