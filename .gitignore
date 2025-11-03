@@ -23,6 +23,8 @@ backend/backend/data/*.db
 .env.*
 !.env.example
 !**/.env.example
+scripts/deploy.env
+scripts/deploy.env.*
 
 # Logs
 npm-debug.log*
@@ -35,3 +37,13 @@ yarn-error.log*
 # OS files
 .DS_Store
 Thumbs.db
+ 
+# Local logs and dev outputs
+backend/logs/
+backend-dev.out
+
+# Additional build outputs
+frontend/dist-new/
+
+# Runtime-generated client config
+frontend/public/runtime-config.js

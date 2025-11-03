@@ -1,6 +1,8 @@
 import type { AuthContext } from '../auth/context.js';
 import { config } from '../config.js';
 import type { NamespacedToolDefinition } from '../mcp/manager.js';
+import { getDynamicRolePermissions } from '../services/toolPermissionService.js';
+import { normalizeRoleName } from './utils.js';
 
 interface RolePolicy {
   name: string;
@@ -28,7 +30,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   manager: {
     name: 'manager',
     allowedModels: ['gpt-5', 'gpt-5-mini', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4o-mini'],
-    allowedServers: ['meters', 'employee', 'garden', 'fincost', 'datetime'],
+    allowedServers: ['meters', 'employee', 'garden', 'fincost', 'datetime', 'chat'],
     deniedTools: [
       '*_delete_*',
       '*_full_*',
@@ -40,7 +42,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   analyst: {
     name: 'analyst',
     allowedModels: ['gpt-5-mini', 'gpt-5-nano', 'gpt-4.1-mini', 'gpt-4.1-nano', 'gpt-4o-mini'],
-    allowedServers: ['meters', 'employee', 'garden', 'datetime'],
+    allowedServers: ['meters', 'employee', 'garden', 'datetime', 'chat'],
     deniedTools: [
       '*_set_*',
       '*_update_*',
@@ -55,7 +57,7 @@ const ROLE_POLICIES: Record<string, RolePolicy> = {
   viewer: {
     name: 'viewer',
     allowedModels: ['gpt-5-nano', 'gpt-4.1-nano', 'gpt-4o-mini'],
-    allowedServers: ['garden', 'meters', 'datetime'],
+    allowedServers: ['garden', 'meters', 'datetime', 'chat'],
     deniedTools: [
       '*_set_*',
       '*_update_*',
@@ -225,15 +227,49 @@ function applyList(values: string[] | undefined, fn: (value: string) => void) {
   }
 }
 
-export function normalizeRoleName(role: string): string {
-  const trimmed = role.trim();
-  if (!trimmed) {
-    return '';
+function applyDynamicPermissions(state: PermissionAccumulator, role: string, aggregate?: {
+  allowServers: Set<string>;
+  denyServers: Set<string>;
+  allowTools: Set<string>;
+  denyTools: Set<string>;
+}) {
+  if (!aggregate) {
+    return;
   }
-  const lowered = trimmed.toLowerCase();
-  const withoutPrefix = lowered.replace(/^role[_:\-]/, '');
-  const segments = withoutPrefix.split(/[\/:]/).filter(Boolean);
-  return segments.length > 0 ? segments[segments.length - 1] : withoutPrefix;
+  state.appliedRoles.add(role);
+
+  for (const server of aggregate.allowServers) {
+    if (server === '*') {
+      state.allowAllServers = true;
+    } else {
+      state.allowedServers.add(server.toLowerCase());
+      state.deniedServers.delete(server.toLowerCase());
+    }
+  }
+  for (const server of aggregate.denyServers) {
+    if (server === '*') {
+      state.denyAllServers = true;
+    } else {
+      state.deniedServers.add(server.toLowerCase());
+      state.allowedServers.delete(server.toLowerCase());
+    }
+  }
+  for (const tool of aggregate.allowTools) {
+    if (tool === '*') {
+      state.allowAllTools = true;
+    } else {
+      state.allowedTools.add(tool.toLowerCase());
+      state.deniedTools.delete(tool.toLowerCase());
+    }
+  }
+  for (const tool of aggregate.denyTools) {
+    if (tool === '*') {
+      state.denyAllTools = true;
+    } else {
+      state.deniedTools.add(tool.toLowerCase());
+      state.allowedTools.delete(tool.toLowerCase());
+    }
+  }
 }
 
 function finalizeAccumulator(state: PermissionAccumulator): EffectivePermissions {
@@ -293,17 +329,29 @@ export function resolveEffectivePermissions(auth?: AuthContext): EffectivePermis
   const fallbackRoles = (config.rbac.fallbackRoles ?? []).map(normalizeRoleName);
   const combinedRoles = Array.from(new Set([...rolesToApply, ...fallbackRoles].filter((role) => role.length > 0)));
 
-  let appliedAnyPolicy = false;
+  let appliedStaticPolicy = false;
   for (const role of combinedRoles) {
     const policy = ROLE_POLICIES[role];
     if (!policy) {
       continue;
     }
-    appliedAnyPolicy = true;
+    appliedStaticPolicy = true;
     mergePatterns(accumulator, policy, new Set());
   }
 
-  if (!appliedAnyPolicy) {
+  const dynamicPermissions = getDynamicRolePermissions();
+  let appliedDynamicPolicy = false;
+  for (const role of combinedRoles) {
+    const normalized = normalizeRoleName(role);
+    const aggregate = dynamicPermissions.get(normalized);
+    if (!aggregate) {
+      continue;
+    }
+    appliedDynamicPolicy = true;
+    applyDynamicPermissions(accumulator, normalized, aggregate);
+  }
+
+  if (!appliedStaticPolicy && !appliedDynamicPolicy) {
     if (config.rbac.unauthenticatedMode === 'deny') {
       return DENY_ALL_PERMISSIONS;
     }

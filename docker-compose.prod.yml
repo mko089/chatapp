@@ -1,3 +1,5 @@
+name: chatapp-prod
+
 services:
   chat-backend:
     image: node:20.19
@@ -10,14 +12,37 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY}
       LLM_MODEL: ${LLM_MODEL:-gpt-5}
       LLM_MODELS: ${LLM_MODELS:-gpt-5,gpt-5-mini,gpt-5-nano,gpt-4o-mini,gpt-4.1-mini}
-      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-8}
+      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-12}
+      CHAT_STREAM_ENABLED: ${CHAT_STREAM_ENABLED:-false}
+      CHAT_INFER_ARGS_ENABLED: ${CHAT_INFER_ARGS_ENABLED:-false}
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-60000}
       PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0}
       COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0}
-      ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
+      # Require explicit ALLOWED_IPS in prod (no fallback)
+      ALLOWED_IPS: ${ALLOWED_IPS:?set ALLOWED_IPS}
+      # Enforce RBAC with no guest access in production
       RBAC_ENABLED: ${RBAC_ENABLED:-true}
       RBAC_OWNER_USERS: ${RBAC_OWNER_USERS:-marcin,marcin@garden.local}
-      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-allow}
+      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-deny}
+      # Keycloak authentication enabled
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-true}
+      # Route Keycloak via Caddy at /auth to avoid mixed content in LAN HTTPS
+      # HTTP-only LAN: point backend to KC via Caddy over HTTP
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://chat.garden}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-chatapp-frontend}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-chatapp-frontend,account}
+      KEYCLOAK_ACCOUNT_CLAIM: ${KEYCLOAK_ACCOUNT_CLAIM:-accountId}
+      KEYCLOAK_ROLES_PATH: ${KEYCLOAK_ROLES_PATH:-realm_access.roles|resource_access.chatapp-frontend.roles}
+      KEYCLOAK_JWKS_CACHE_MS: ${KEYCLOAK_JWKS_CACHE_MS:-600000}
+      KEYCLOAK_CLOCK_SKEW_MS: ${KEYCLOAK_CLOCK_SKEW_MS:-5000}
+      # RBAC overrides
+      RBAC_ADMIN_USERS: ${RBAC_ADMIN_USERS:?set RBAC_ADMIN_USERS}
+      # Only expose health without auth; everything else requires token
+      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health}
       MCP_CONFIG: mcp.config.json
+      # Use a separate SQLite DB file for prod
+      DATABASE_FILE: ${DATABASE_FILE:-backend/data/chatapp-prod.sqlite}
       PORT: 3025
     volumes:
       - ..:/workspace:cached
@@ -32,7 +57,18 @@ services:
     environment:
       NODE_ENV: production
       NPM_CONFIG_PRODUCTION: "false"
-      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://192.168.14.55:3025}
+      # Use same-origin API via reverse proxy path; Caddy should map /api -> 127.0.0.1:3025
+      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-/api}
+      VITE_CHAT_STREAMING: ${VITE_CHAT_STREAMING:-false}
+      # Frontend auth config enabled
+      VITE_KEYCLOAK_ENABLED: ${VITE_KEYCLOAK_ENABLED:-true}
+      # Frontend talks to Keycloak through the same host over HTTPS
+      # HTTP-only LAN: frontend talks to KC via same host over HTTP
+      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://chat.garden}
+      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-garden}
+      VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-chatapp-frontend}
+      # HTTP-only LAN: silent check SSO over HTTP
+      VITE_KEYCLOAK_SILENT_CHECK_SSO: ${VITE_KEYCLOAK_SILENT_CHECK_SSO:-http://chat.garden/silent-check-sso.html}
     volumes:
       - ..:/workspace:cached
     ports:

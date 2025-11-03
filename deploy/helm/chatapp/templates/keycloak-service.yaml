@@ -1,0 +1,30 @@
+{{- if and .Values.keycloak.enabled .Values.keycloak.host }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chatapp.fullname" . }}-keycloak
+  labels:
+    app.kubernetes.io/name: {{ include "chatapp.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.keycloak.port }}
+      targetPort: {{ .Values.keycloak.port }}
+  # No selector; endpoints defined manually for external IP
+  selector: {}
+
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: {{ include "chatapp.fullname" . }}-keycloak
+subsets:
+  - addresses:
+      - ip: {{ .Values.keycloak.host | quote }}
+    ports:
+      - name: http
+        port: {{ .Values.keycloak.port }}
+{{- end }}
+

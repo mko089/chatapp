@@ -1,0 +1,30 @@
+{{- if .Values.ingress.enabled }}
+# Backend Ingress with regex + rewrite to strip /api prefix
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "chatapp.fullname" . }}-api
+  labels:
+    app.kubernetes.io/name: {{ include "chatapp.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    {{- toYaml .Values.ingress.backendAnnotations | nindent 4 }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "chatapp.fullname" $ }}-backend
+                port:
+                  number: 80
+    {{- end }}
+{{- end }}
+

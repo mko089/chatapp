@@ -27,6 +27,7 @@ export type AssistantMessage = {
 export type ToolCallResult = {
   name: string;
   args: unknown;
+  rawArgs?: unknown;
   result: unknown;
   timestamp: string;
 };

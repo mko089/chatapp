@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { MCPManager } from '../mcp/manager.js';
 import { config } from '../config.js';
 import { isModelAllowed, resolveEffectivePermissions } from '../rbac/index.js';
+import { getDb } from '../db/index.js';
 
 interface RegisterHealthRouteOptions {
   mcpManager: MCPManager;
@@ -30,6 +31,11 @@ export async function registerHealthRoute(app: FastifyInstance<any>, options: Re
         enabled: config.rbac.enabled,
         roles: permissions.appliedRoles,
       },
+      flags: {
+        llmTraceEnabled: config.llmTraceEnabled,
+        chatInferArgsEnabled: config.chatInferArgsEnabled,
+        chatMaxIterations: config.chatMaxIterations,
+      },
     };
 
     try {
@@ -49,5 +55,21 @@ export async function registerHealthRoute(app: FastifyInstance<any>, options: Re
     }
 
     return health;
+  });
+
+  // Readiness probe: returns 200 when critical dependencies are initialised
+  app.get('/ready', async (request, reply) => {
+    try {
+      // DB initialised
+      const db = getDb();
+      db.prepare('SELECT 1').get();
+      // MCP initialised (at least one server attempted)
+      await mcpManager.listTools(false);
+      reply.code(200);
+      return { status: 'ready' } as const;
+    } catch (error) {
+      reply.code(503);
+      return { status: 'not-ready', error: error instanceof Error ? error.message : String(error) } as const;
+    }
   });
 }

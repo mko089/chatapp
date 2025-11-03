@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { listBudgets, getBudget, upsertBudget, deleteBudget } from '../../services/budgetService.js';
 import { evaluateBudgetsForContext } from '../../services/budgetEvaluator.js';
-import { normalizeRoleName, resolveEffectivePermissions } from '../../rbac/policyEngine.js';
+import { normalizeRoleName, resolveEffectivePermissions } from '../../rbac/index.js';
+import { sendError } from '../../utils/errors.js';
 
 const ScopeTypeSchema = z.enum(['account', 'role', 'user']);
 
@@ -53,13 +54,11 @@ export async function registerAdminBudgetsRoutes(app: FastifyInstance<any>) {
     const params = request.params as { scopeType: string; scopeId: string };
     const parse = ScopeTypeSchema.safeParse(params.scopeType);
     if (!parse.success) {
-      reply.status(400);
-      return { error: 'Invalid scope type' };
+      return sendError(reply, 400, 'invalid_scope_type', 'Invalid scope type');
     }
     const budget = await getBudget(parse.data, params.scopeId);
     if (!budget) {
-      reply.status(404);
-      return { error: 'Budget not found' };
+      return sendError(reply, 404, 'not_found', 'Budget not found');
     }
     return { budget };
   });
@@ -68,8 +67,7 @@ export async function registerAdminBudgetsRoutes(app: FastifyInstance<any>) {
     ensureAdmin(request);
     const body = UpsertBudgetSchema.safeParse(request.body);
     if (!body.success) {
-      reply.status(400);
-      return { error: 'Invalid payload', details: body.error.issues };
+      return sendError(reply, 400, 'invalid_payload', 'Invalid payload', body.error.issues);
     }
     const record = await upsertBudget(body.data);
     return { budget: record };
@@ -80,13 +78,11 @@ export async function registerAdminBudgetsRoutes(app: FastifyInstance<any>) {
     const params = request.params as { scopeType: string; scopeId: string };
     const parse = ScopeTypeSchema.safeParse(params.scopeType);
     if (!parse.success) {
-      reply.status(400);
-      return { error: 'Invalid scope type' };
+      return sendError(reply, 400, 'invalid_scope_type', 'Invalid scope type');
     }
     const removed = await deleteBudget(parse.data, params.scopeId);
     if (!removed) {
-      reply.status(404);
-      return { error: 'Budget not found' };
+      return sendError(reply, 404, 'not_found', 'Budget not found');
     }
     return { ok: true };
   });
@@ -95,8 +91,7 @@ export async function registerAdminBudgetsRoutes(app: FastifyInstance<any>) {
     ensureAdmin(request);
     const query = EvaluationQuerySchema.safeParse(request.query ?? {});
     if (!query.success) {
-      reply.status(400);
-      return { error: 'Invalid query parameters', details: query.error.issues };
+      return sendError(reply, 400, 'invalid_query', 'Invalid query parameters', query.error.issues);
     }
     const { accountId, userId, role } = query.data;
     const result = await evaluateBudgetsForContext({

@@ -1,0 +1,29 @@
+{{- if and .Values.keycloak.enabled .Values.keycloak.host .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "chatapp.fullname" . }}-keycloak
+  labels:
+    app.kubernetes.io/name: {{ include "chatapp.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    {{- toYaml .Values.keycloak.annotations | nindent 4 }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: {{ $.Values.keycloak.pathPrefix }}(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "chatapp.fullname" $ }}-keycloak
+                port:
+                  number: {{ $.Values.keycloak.port }}
+    {{- end }}
+{{- end }}
+

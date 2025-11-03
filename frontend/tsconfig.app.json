@@ -15,5 +15,9 @@
     "noEmit": true
   },
   "include": ["src"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ],
   "references": []
 }

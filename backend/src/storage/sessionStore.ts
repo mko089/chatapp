@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import type { ChatMessageMetadata } from '../types/chat.js';
 
@@ -12,12 +12,17 @@ export type StoredChatMessage = {
 export type StoredToolInvocation = {
   name: string;
   args: unknown;
+  rawArgs?: unknown;
   result: unknown;
   timestamp: string;
 };
 
 export type SessionRecord = {
   id: string;
+  userId?: string | null;
+  accountId?: string | null;
+  projectId?: string | null;
+  currentDocPath?: string | null;
   messages: StoredChatMessage[];
   toolResults: StoredToolInvocation[];
   createdAt: string;
@@ -33,6 +38,11 @@ export type SessionSummary = {
   lastMessagePreview?: string;
   lastMessageRole?: 'user' | 'assistant';
   lastMessageAt?: string;
+  userId?: string | null;
+  accountId?: string | null;
+  projectId?: string | null;
+  currentDocPath?: string | null;
+  title?: string;
 };
 
 const DATA_DIR = path.resolve(process.cwd(), 'backend/data/sessions');
@@ -65,8 +75,8 @@ export async function saveSession(record: SessionRecord): Promise<void> {
   await writeFile(resolvePath(record.id), JSON.stringify(normalized, null, 2), 'utf-8');
 }
 
-export async function listSessions(options: { limit?: number } = {}): Promise<SessionSummary[]> {
-  const { limit } = options;
+export async function listSessions(options: { limit?: number; userId?: string | null; accountId?: string | null; includeUnassigned?: boolean } = {}): Promise<SessionSummary[]> {
+  const { limit, userId, accountId, includeUnassigned = !userId } = options;
   await ensureDir();
   let files: string[] = [];
   try {
@@ -88,16 +98,26 @@ export async function listSessions(options: { limit?: number } = {}): Promise<Se
     try {
       const raw = JSON.parse(await readFile(path.join(DATA_DIR, file), 'utf-8')) as SessionRecord;
       const normalized = normalizeRecord(raw);
+      if (!shouldIncludeSession(normalized, { userId, accountId, includeUnassigned })) {
+        continue;
+      }
       const messageCount = normalized.messages.length;
       const toolResultCount = normalized.toolResults.length;
       const lastMessage = normalized.messages[messageCount - 1];
       const preview = lastMessage?.content?.trim?.() ?? '';
+      const firstUserMessage = normalized.messages.find((msg) => msg.role === 'user' && typeof msg.content === 'string' && msg.content.trim().length > 0);
+      const firstUserPreview = firstUserMessage?.content?.trim?.() ?? '';
       const summarized: SessionSummary = {
         id: normalized.id ?? sessionId,
         createdAt: normalized.createdAt,
         updatedAt: normalized.updatedAt,
         messageCount,
         toolResultCount,
+        userId: normalized.userId ?? null,
+        accountId: normalized.accountId ?? null,
+        projectId: normalized.projectId ?? null,
+        currentDocPath: normalized.currentDocPath ?? null,
+        title: firstUserPreview ? truncate(firstUserPreview, 120) : undefined,
       };
       if (preview) {
         summarized.lastMessagePreview = truncate(preview, 280);
@@ -119,9 +139,23 @@ export async function listSessions(options: { limit?: number } = {}): Promise<Se
   return summaries;
 }
 
+export async function deleteSession(id: string): Promise<boolean> {
+  try {
+    await unlink(resolvePath(id));
+    return true;
+  } catch (error: any) {
+    if (error && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
 function normalizeRecord(record: SessionRecord): SessionRecord {
   return {
     ...record,
+    userId: sanitizeId(record.userId),
+    accountId: sanitizeId(record.accountId),
     messages: (record.messages ?? []).map((message) => ({
       ...message,
       timestamp: sanitizeTimestamp(message.timestamp),
@@ -134,6 +168,38 @@ function normalizeRecord(record: SessionRecord): SessionRecord {
   };
 }
 
+function shouldIncludeSession(
+  session: SessionRecord,
+  options: { userId?: string | null; accountId?: string | null; includeUnassigned: boolean },
+): boolean {
+  const ownerId = session.userId ?? null;
+  const sessionAccount = session.accountId ?? null;
+  const requestedUser = options.userId ?? null;
+  const requestedAccount = options.accountId ?? null;
+
+  if (requestedUser) {
+    if (ownerId && ownerId !== requestedUser) {
+      return false;
+    }
+    if (!ownerId && !options.includeUnassigned) {
+      return false;
+    }
+  } else if (!options.includeUnassigned && ownerId) {
+    return false;
+  }
+
+  if (requestedAccount) {
+    if (sessionAccount && sessionAccount !== requestedAccount) {
+      return false;
+    }
+    if (!sessionAccount && !options.includeUnassigned) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function sanitizeTimestamp(value?: string): string {
   if (value) {
     const parsed = new Date(value);
@@ -142,6 +208,16 @@ function sanitizeTimestamp(value?: string): string {
     }
   }
   return new Date().toISOString();
+}
+
+function sanitizeId(value?: string | null): string | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return null;
 }
 
 function sanitizeMetadata(metadata?: ChatMessageMetadata): ChatMessageMetadata | undefined {

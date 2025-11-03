@@ -15,6 +15,13 @@
 
 Wyniki wracają jako JSON (string w treści), a UI pokazuje skrót + przycisk „Szczegóły”.
 
+## Domyślne parametry wywołań
+- Dla narzędzia `employee_employees_costs` backend uzupełnia brakujące argumenty:
+  - `from` i `to` — bieżący dzień w strefie `Europe/Warsaw`;
+  - `tz` — `Europe/Warsaw`;
+  - `environment` — `prod`.
+- Dzięki temu scenariusz „wywołaj” po zaproponowaniu domyślnych wartości skutkuje realnym wywołaniem, nawet gdy model nie przekaże argumentów w tool call.
+
 ## Diagnostyka
 - `GET /mcp/tools` — powinno zwrócić narzędzia `employee_*` i `meters_*`.
 - Log backendu: przy starcie `MCP manager` zarejestruje serwer `employee`; błędy stdio są logowane jako `Failed to initialise MCP server`.

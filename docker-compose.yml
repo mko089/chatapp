@@ -1,15 +1,6 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp}
-      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+name: chatapp-dev
 
+services:
   chat-backend:
     image: node:20.19
     working_dir: /workspace/chatapp
@@ -20,35 +11,40 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
       LLM_MODEL: ${LLM_MODEL:-gpt-5-mini}
       LLM_MODELS: ${LLM_MODELS:-gpt-5,gpt-5-mini,gpt-4.1-mini,gpt-4o-mini}
-      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-8}
+      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-12}
+      CHAT_INFER_ARGS_ENABLED: ${CHAT_INFER_ARGS_ENABLED:-false}
+      CHAT_STREAM_ENABLED: ${CHAT_STREAM_ENABLED:-false}
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-60000}
       PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0.000005}
       COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0.000015}
-      ALLOWED_IPS: ${ALLOWED_IPS:-*}
-      DATABASE_FILE: ${DATABASE_FILE:-backend/data/chatapp.sqlite}
-      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp}
-      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
-      POSTGRES_HOST: postgres
+      LLM_TRACE_ENABLED: ${LLM_TRACE_ENABLED:-false}
+      # Dev: require explicit ALLOWED_IPS from .env (no fallback)
+      ALLOWED_IPS: ${ALLOWED_IPS:?set ALLOWED_IPS}
+      # Separate SQLite DB file for dev
+      DATABASE_FILE: ${DATABASE_FILE:-backend/data/chatapp-dev.sqlite}
       CHATAPP_HOST: ${CHATAPP_HOST:-192.168.14.55}
       KEYCLOAK_URL: ${KEYCLOAK_URL:-http://${CHATAPP_HOST:-192.168.14.55}:8080}
       KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_BACKEND_CLIENT_ID:-chatapp-frontend}
       KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-chatapp-frontend,account}
       KEYCLOAK_ACCOUNT_CLAIM: ${KEYCLOAK_ACCOUNT_CLAIM:-accountId}
-      KEYCLOAK_ROLES_PATH: ${KEYCLOAK_ROLES_PATH:-realm_access.roles|resource_access.chatapp-frontend.roles}
+      # Lean Auth: proste źródła ról — realm roles + groups
+      KEYCLOAK_ROLES_PATH: ${KEYCLOAK_ROLES_PATH:-realm_access.roles|groups}
       KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-true}
-      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health,GET /mcp/tools,GET /sessions,GET /sessions/*,GET /metrics/cost,POST /chat,POST /chat/stream}
+      # RBAC overrides
+      RBAC_ADMIN_USERS: ${RBAC_ADMIN_USERS:?set RBAC_ADMIN_USERS}
+      # Lean Auth: publicznie tylko status zdrowia
+      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health}
       RBAC_ENABLED: ${RBAC_ENABLED:-true}
-      RBAC_DEFAULT_ROLES: ${RBAC_DEFAULT_ROLES:-owner}
-      RBAC_FALLBACK_ROLES: ${RBAC_FALLBACK_ROLES:-owner}
+      RBAC_DEFAULT_ROLES: ${RBAC_DEFAULT_ROLES:-viewer}
+      RBAC_FALLBACK_ROLES: ${RBAC_FALLBACK_ROLES:-viewer}
       RBAC_OWNER_USERS: ${RBAC_OWNER_USERS:-marcin,marcin@garden.local}
-      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-allow}
+      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-deny}
     volumes:
       - ..:/workspace:cached
     ports:
       - "4025:4025"
-    depends_on:
-      - postgres
+    depends_on: []
     tty: true
     stdin_open: true
 
@@ -60,7 +56,9 @@ services:
     environment:
       NODE_ENV: development
       CHATAPP_HOST: ${CHATAPP_HOST:-192.168.14.55}
+      # Lean Auth: frontend mówi bezpośrednio do backendu po IP:port (bez reverse proxy)
       VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://${CHATAPP_HOST:-192.168.14.55}:4025}
+      VITE_CHAT_STREAMING: ${VITE_CHAT_STREAMING:-false}
       VITE_KEYCLOAK_ENABLED: ${VITE_KEYCLOAK_ENABLED:-true}
       VITE_KEYCLOAK_URL: ${KEYCLOAK_URL:-http://${CHATAPP_HOST:-192.168.14.55}:8080}
       VITE_KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
@@ -75,5 +73,4 @@ services:
     tty: true
     stdin_open: true
 
-volumes:
-  postgres-data: {}
+volumes: {}

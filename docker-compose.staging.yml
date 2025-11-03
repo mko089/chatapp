@@ -1,0 +1,68 @@
+name: chatapp-staging
+
+services:
+  chat-backend:
+    image: node:20.19
+    working_dir: /workspace/chatapp
+    command: >-
+      bash -lc "npm install && npm run build --workspace backend && npm run start --workspace backend"
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      NPM_CONFIG_PRODUCTION: "false"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-dummy}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5-mini}
+      LLM_MODELS: ${LLM_MODELS:-gpt-5,gpt-5-mini,gpt-5-nano,gpt-4o-mini,gpt-4.1-mini}
+      CHAT_MAX_ITERATIONS: ${CHAT_MAX_ITERATIONS:-12}
+      CHAT_STREAM_ENABLED: ${CHAT_STREAM_ENABLED:-false}
+      CHAT_INFER_ARGS_ENABLED: ${CHAT_INFER_ARGS_ENABLED:-false}
+      REQUEST_TIMEOUT_MS: ${REQUEST_TIMEOUT_MS:-60000}
+      PROMPT_TOKEN_COST_USD: ${PROMPT_TOKEN_COST_USD:-0.000005}
+      COMPLETION_TOKEN_COST_USD: ${COMPLETION_TOKEN_COST_USD:-0.000015}
+      LLM_TRACE_ENABLED: ${LLM_TRACE_ENABLED:-false}
+      ALLOWED_IPS: ${ALLOWED_IPS:-192.168.2.145,192.168.4.170}
+      RBAC_ENABLED: ${RBAC_ENABLED:-true}
+      RBAC_OWNER_USERS: ${RBAC_OWNER_USERS:-marcin,marcin@garden.local}
+      RBAC_UNAUTHENTICATED_MODE: ${RBAC_UNAUTHENTICATED_MODE:-deny}
+      KEYCLOAK_ENABLED: ${KEYCLOAK_ENABLED:-true}
+      KEYCLOAK_URL: ${KEYCLOAK_URL:-http://chat-staging.garden}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM:-garden}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID:-chatapp-frontend}
+      KEYCLOAK_AUDIENCE: ${KEYCLOAK_AUDIENCE:-chatapp-frontend,account}
+      KEYCLOAK_ACCOUNT_CLAIM: ${KEYCLOAK_ACCOUNT_CLAIM:-accountId}
+      KEYCLOAK_ROLES_PATH: ${KEYCLOAK_ROLES_PATH:-realm_access.roles|resource_access.chatapp-frontend.roles}
+      KEYCLOAK_JWKS_CACHE_MS: ${KEYCLOAK_JWKS_CACHE_MS:-600000}
+      KEYCLOAK_CLOCK_SKEW_MS: ${KEYCLOAK_CLOCK_SKEW_MS:-5000}
+      AUTH_PUBLIC_PATHS: ${AUTH_PUBLIC_PATHS:-GET /health}
+      MCP_CONFIG: ${MCP_CONFIG:-mcp.config.json}
+      DATABASE_FILE: ${DATABASE_FILE:-backend/data/chatapp-staging.sqlite}
+      PORT: 3525
+    volumes:
+      - ..:/workspace:cached
+    ports:
+      - "3525:3525"
+
+  chat-frontend:
+    image: node:20.19
+    working_dir: /workspace/chatapp
+    command: >-
+      bash -lc "npm install && npm exec -w frontend vite build && npm exec -w frontend vite preview -- --host 0.0.0.0 --port 4173"
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      NPM_CONFIG_PRODUCTION: "false"
+      VITE_CHATAPI_URL: ${VITE_CHATAPI_URL:-http://localhost:3525}
+      VITE_CHAT_STREAMING: ${VITE_CHAT_STREAMING:-false}
+      VITE_KEYCLOAK_ENABLED: ${VITE_KEYCLOAK_ENABLED:-true}
+      VITE_KEYCLOAK_URL: ${VITE_KEYCLOAK_URL:-http://chat-staging.garden}
+      VITE_KEYCLOAK_REALM: ${VITE_KEYCLOAK_REALM:-garden}
+      VITE_KEYCLOAK_CLIENT_ID: ${VITE_KEYCLOAK_CLIENT_ID:-chatapp-frontend}
+      VITE_KEYCLOAK_SILENT_CHECK_SSO: ${VITE_KEYCLOAK_SILENT_CHECK_SSO:-http://chat-staging.garden/silent-check-sso.html}
+    ports:
+      - "3725:4173"
+    volumes:
+      - ..:/workspace:cached
+    depends_on:
+      - chat-backend
+
+volumes: {}

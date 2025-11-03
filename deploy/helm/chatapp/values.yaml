@@ -1,0 +1,90 @@
+image:
+  registry: ghcr.io/your-org
+  backend:
+    repository: chatapp-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: chatapp-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+backend:
+  replicaCount: 1
+  port: 3025
+  resources: {}
+  persistence:
+    enabled: false
+    # If you already created a PVC, set its name here and leave enabled=true
+    existingClaim: ""
+    size: 1Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    # Directory to mount; DATABASE_FILE should be inside
+    mountPath: /app/backend/data
+  env:
+    NODE_ENV: production
+    CHAT_MAX_ITERATIONS: "12"
+    CHAT_STREAM_ENABLED: "false"
+    CHAT_INFER_ARGS_ENABLED: "false"
+    REQUEST_TIMEOUT_MS: "60000"
+    RBAC_ENABLED: "true"
+    RBAC_UNAUTHENTICATED_MODE: deny
+    KEYCLOAK_ENABLED: "true"
+    KEYCLOAK_REALM: garden
+    KEYCLOAK_CLIENT_ID: chatapp-frontend
+    KEYCLOAK_AUDIENCE: chatapp-frontend,account
+    KEYCLOAK_ACCOUNT_CLAIM: accountId
+    KEYCLOAK_ROLES_PATH: realm_access.roles|resource_access.chatapp-frontend.roles
+    KEYCLOAK_JWKS_CACHE_MS: "600000"
+    KEYCLOAK_CLOCK_SKEW_MS: "5000"
+    AUTH_PUBLIC_PATHS: "GET /health"
+    DATABASE_FILE: backend/data/chatapp.sqlite
+  secretEnv:
+    OPENAI_API_KEY: ""
+    ALLOWED_IPS: ""
+
+frontend:
+  replicaCount: 1
+  port: 80
+  resources: {}
+  runtimeConfig:
+    chatApiUrl: /api
+    chatStreaming: false
+    requireAuth: true
+    keycloak:
+      enabled: true
+      url: ""
+      realm: garden
+      clientId: chatapp-frontend
+
+service:
+  type: ClusterIP
+
+imagePullSecrets: []
+
+ingress:
+  enabled: false
+  className: ""
+  hosts:
+    - host: chat.garden
+  apiPath: /api
+  # Annotations for the frontend ingress
+  annotations: {}
+  # Annotations for the backend ingress (regex + rewrite to strip /api)
+  backendAnnotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "/$2"
+  tls: []
+
+# Optional Keycloak reverse proxy via Ingress at /auth
+keycloak:
+  enabled: false
+  # External upstream (IP address of Keycloak reachable from cluster nodes)
+  host: ""
+  port: 8080
+  pathPrefix: /auth
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: "/$2"

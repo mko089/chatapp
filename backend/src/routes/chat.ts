@@ -51,7 +51,11 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
     const rawPayload = body.data as ChatRequestPayload & { maxIterations?: number; model?: string };
     const normalizedPayload: ChatRequestPayload & { maxIterations: number } = {
       ...rawPayload,
-      maxIterations: rawPayload.maxIterations ?? config.chatMaxIterations,
+      // Clamp to server-side cap to prevent excessive loops
+      maxIterations: Math.min(
+        rawPayload.maxIterations ?? config.chatMaxIterations,
+        config.chatMaxIterations,
+      ),
     };
     const sessionId = normalizedPayload.sessionId ?? randomUUID();
 
@@ -89,7 +93,19 @@ export async function registerChatRoutes(app: FastifyInstance<any>, options: Reg
       reply.header('x-budget-warning', 'soft-limit-exceeded');
     }
 
-    const existingSession = await loadSession(sessionId);
+    const existingSessionRaw = await loadSession(sessionId);
+    if (existingSessionRaw && existingSessionRaw.userId && existingSessionRaw.userId !== request.auth?.sub) {
+      reply.status(404);
+      return { error: 'Session not found' };
+    }
+
+    const existingSession = existingSessionRaw
+      ? {
+          ...existingSessionRaw,
+          userId: existingSessionRaw.userId ?? request.auth?.sub ?? null,
+          accountId: existingSessionRaw.accountId ?? request.auth?.accountId ?? null,
+        }
+      : null;
     const result = await processChatInteraction({
       payload: normalizedPayload,
       sessionId,

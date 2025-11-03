@@ -154,7 +154,7 @@ function Section({ title, emptyLabel, children }: { title: string; emptyLabel: s
   );
 }
 
-function ToolRow({ tool, isFavorite, onSelect, onToggleFavorite }: { tool: ToolInfo; isFavorite: boolean; onSelect: () => void; onToggleFavorite: () => void }) {
+function ToolRow({ tool, isFavorite, onSelect, onToggleFavorite, term }: { tool: ToolInfo; isFavorite: boolean; onSelect: () => void; onToggleFavorite: () => void; term?: string }) {
   return (
     <div className="flex items-start gap-2 rounded-2xl border border-white/5 bg-white/5 px-4 py-3">
       <button

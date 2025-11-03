@@ -1,0 +1,57 @@
+image:
+  registry: ghcr.io/your-org
+  backend:
+    repository: chatapp-backend
+    tag: v0.1.0
+  frontend:
+    repository: chatapp-frontend
+    tag: v0.1.0-staging
+backend:
+  env:
+    NODE_ENV: production
+    APP_ENV: staging
+    LLM_MODEL: gpt-5-mini
+    LLM_MODELS: gpt-5,gpt-5-mini,gpt-5-nano,gpt-4o-mini,gpt-4.1-mini
+    CHAT_MAX_ITERATIONS: '12'
+    CHAT_STREAM_ENABLED: 'false'
+    CHAT_INFER_ARGS_ENABLED: 'false'
+    REQUEST_TIMEOUT_MS: '60000'
+    LLM_TRACE_ENABLED: 'false'
+    RBAC_ENABLED: 'true'
+    RBAC_OWNER_USERS: marcin,marcin@garden.local
+    RBAC_UNAUTHENTICATED_MODE: deny
+    KEYCLOAK_ENABLED: 'true'
+    KEYCLOAK_URL: http://192.168.14.55:8080
+    KEYCLOAK_REALM: garden
+    KEYCLOAK_CLIENT_ID: chatapp-frontend
+    KEYCLOAK_AUDIENCE: chatapp-frontend,account
+    KEYCLOAK_ACCOUNT_CLAIM: accountId
+    KEYCLOAK_ROLES_PATH: realm_access.roles|resource_access.chatapp-frontend.roles
+    KEYCLOAK_JWKS_CACHE_MS: '600000'
+    KEYCLOAK_CLOCK_SKEW_MS: '5000'
+    AUTH_PUBLIC_PATHS: GET /health
+    DATABASE_FILE: backend/data/chatapp-staging.sqlite
+  secretEnv: {}
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ''
+    mountPath: /app/backend/data
+frontend:
+  runtimeConfig:
+    chatApiUrl: /api
+    chatStreaming: false
+    keycloak:
+      enabled: true
+      url: http://192.168.14.55:8080
+      realm: garden
+      clientId: chatapp-frontend
+      silentCheckSso: http://192.168.14.55:8080/silent-check-sso.html
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+  - host: chat-staging.garden
+  apiPath: /api
+keycloak:
+  enabled: false

@@ -28,6 +28,7 @@ function parsePatterns(rawPatterns: string[]): string[] {
 }
 
 const publicPathPatterns = parsePatterns(config.auth.publicPaths);
+const optionalAuthPathPatterns = parsePatterns(config.auth.optionalAuthPaths);
 
 const issuerUrl = config.auth.issuer ? buildJwksUrl(config.auth.issuer) : undefined;
 
@@ -131,15 +132,15 @@ function resolveRoles(payload: JWTPayload): string[] {
   return [...roles];
 }
 
-function isPublicPath(pathname: string, method: string): boolean {
-  if (!publicPathPatterns.length) {
+function matchesAnyPattern(pathname: string, method: string, patterns: string[]): boolean {
+  if (!patterns.length) {
     return false;
   }
 
   const target = pathname.toLowerCase();
   const targetWithMethod = `${method.toLowerCase()} ${target}`;
 
-  return publicPathPatterns.some((pattern) => {
+  return patterns.some((pattern) => {
     const candidate = pattern.toLowerCase();
     if (candidate.includes(' ')) {
       return matchPattern(targetWithMethod, candidate);
@@ -215,13 +216,15 @@ export function buildAuthHook(): OnRequestHook {
       return;
     }
     const rawPath = request.raw.url ? request.raw.url.split('?')[0] : '';
-    if (isPublicPath(rawPath, request.method)) {
-      return;
-    }
+    const pathIsPublic = matchesAnyPattern(rawPath, request.method, publicPathPatterns);
+    const pathAllowsAnonymous = matchesAnyPattern(rawPath, request.method, optionalAuthPathPatterns);
 
     const token = extractBearerToken(request.headers[AUTHORIZATION_HEADER] as string | undefined);
 
     if (!token) {
+      if (pathIsPublic || pathAllowsAnonymous) {
+        return;
+      }
       request.log.warn({ path: rawPath }, 'Missing bearer token');
       return reply.code(401).send({ error: 'Unauthorized' });
     }
@@ -243,6 +246,7 @@ export function buildAuthHook(): OnRequestHook {
       });
 
       request.auth = buildAuthContext(token, payload);
+      return;
     } catch (error) {
       request.log.warn({ err: error }, 'Failed to verify access token');
       return reply.code(401).send({ error: 'Unauthorized' });
@@ -256,5 +260,13 @@ export function logAuthStartupDetails(): void {
     return;
   }
 
-  logger.info({ issuer: config.auth.issuer, audience: config.auth.audience }, 'Keycloak authentication enabled');
+  logger.info(
+    {
+      issuer: config.auth.issuer,
+      audience: config.auth.audience,
+      publicPaths: publicPathPatterns,
+      optionalAuthPaths: optionalAuthPathPatterns,
+    },
+    'Keycloak authentication enabled',
+  );
 }

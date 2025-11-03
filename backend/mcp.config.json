@@ -4,13 +4,25 @@
     {
       "id": "meters",
       "transport": "stdio",
-      "command": "../../metersapp/apps/meters-mcp/run.sh",
+      "command": "./scripts/run-meters-mcp.sh",
       "args": [],
       "env": {
         "NODE_ENV": "production",
-        "METERS_API_URL": "http://192.168.14.55:3003"
+        "METERS_API_URL": "http://192.168.14.55:3003",
+        "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 15000
+      "defaultTimeoutMs": 45000
+    },
+    {
+      "id": "projects",
+      "transport": "stdio",
+      "command": "./scripts/run-projects-mcp.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "defaultTimeoutMs": 30000
     },
     {
       "id": "datetime",
@@ -21,7 +33,18 @@
         "NODE_ENV": "production",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 5000
+      "defaultTimeoutMs": 15000
+    },
+    {
+      "id": "chat",
+      "transport": "stdio",
+      "command": "./scripts/run-chat-mcp.sh",
+      "args": [],
+      "env": {
+        "NODE_ENV": "production",
+        "NODE_BIN_OVERRIDE": "node"
+      },
+      "defaultTimeoutMs": 30000
     },
     {
       "id": "employee",
@@ -34,7 +57,7 @@
         "EMPLOYEE_API_TOKEN": "",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 20000
+      "defaultTimeoutMs": 60000
     },
     {
       "id": "fincost",
@@ -47,7 +70,7 @@
         "FINCOST_API_KEY": "dev-secret-key",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 20000
+      "defaultTimeoutMs": 60000
     },
     {
       "id": "garden",
@@ -60,7 +83,7 @@
         "GARDEN_ROLE": "admin",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 20000
+      "defaultTimeoutMs": 60000
     },
     {
       "id": "posbistro",
@@ -72,7 +95,7 @@
         "API_BASE": "http://192.168.14.55:3005",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 20000
+      "defaultTimeoutMs": 60000
     },
     {
       "id": "keycloak",
@@ -87,7 +110,7 @@
         "KC_TOKEN_REALM": "master",
         "NODE_BIN_OVERRIDE": "node"
       },
-      "defaultTimeoutMs": 20000
+      "defaultTimeoutMs": 60000
     }
   ]
 }

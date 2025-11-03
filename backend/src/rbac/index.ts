@@ -6,3 +6,5 @@ export {
   isToolAllowed,
   filterToolsByPermissions,
 } from './policyEngine.js';
+export { normalizeRoleName } from './utils.js';
+export { isSuperAdmin, collectAuthDiagnostics } from './guards.js';

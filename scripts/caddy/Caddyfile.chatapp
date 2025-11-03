@@ -1,0 +1,40 @@
+http://chat.garden {
+  bind 192.168.14.55
+  redir https://chat.garden{uri} permanent
+}
+
+https://chat.garden {
+  bind 192.168.14.55
+  tls /home/ubuntu/Projects/chat.garden.crt /home/ubuntu/Projects/chat.garden.key
+
+  encode zstd gzip
+
+  @api path /api/*
+  handle @api {
+    uri strip_prefix /api
+    reverse_proxy 127.0.0.1:3025
+  }
+
+  @kc path /auth*
+  handle @kc {
+    uri strip_prefix /auth
+    reverse_proxy 192.168.14.55:8080 {
+      header_up Host {host}
+      header_up X-Forwarded-Host {host}
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Port 443
+      header_up X-Forwarded-Prefix /auth
+    }
+  }
+
+  @kc2 path /realms/*
+  handle @kc2 {
+    reverse_proxy 192.168.14.55:8080
+  }
+
+  handle {
+    root * /home/ubuntu/Projects/chatapp/frontend/dist
+    try_files {path} /index.html
+    file_server
+  }
+}

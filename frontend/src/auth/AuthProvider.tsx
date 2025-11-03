@@ -1,4 +1,4 @@
-import Keycloak, { type KeycloakInstance, type KeycloakInitOptions, type KeycloakTokenParsed } from 'keycloak-js';
+import { type KeycloakInstance, type KeycloakTokenParsed, type KeycloakInitOptions } from 'keycloak-js';
 import {
   createContext,
   useCallback,
@@ -10,6 +10,10 @@ import {
   type ReactNode,
 } from 'react';
 
+import { resolveKeycloakConfig as resolveKcCfg } from './config';
+import { createKeycloak } from './keycloakAdapter';
+import { LAST_BASE_STORAGE_KEY, resolveApiBaseUrl as resolveApiBaseUrlExt, buildProfileBaseCandidates as buildProfileBaseCandidatesExt } from '../utils/apiBase';
+
 type AuthUser = {
   sub?: string;
   name?: string;
@@ -19,12 +23,48 @@ type AuthUser = {
   roles: string[];
 };
 
-type AuthContextValue = {
+type AuthServerProfile = {
+  user?: {
+    sub: string;
+    email: string | null;
+    name: string | null;
+    username: string | null;
+    accountId: string | null;
+    roles: string[];
+    issuedAt: string | null;
+    expiresAt: string | null;
+  };
+  diagnostics: {
+    identityHints: string[];
+    normalizedRoles: string[];
+    adminCandidates: string[];
+    ownerCandidates: string[];
+    isSuperAdmin: boolean;
+  };
+  config: {
+    rbac: {
+      ownerUsers: string[];
+      adminUsers: string[];
+      defaultRoles: string[];
+      fallbackRoles: string[];
+    };
+    auth: {
+      issuer: string | null;
+      audience: string | null;
+      optionalAuthPaths: string[];
+      publicPaths: string[];
+    };
+  };
+};
+
+export type AuthContextValue = {
   enabled: boolean;
   ready: boolean;
   isAuthenticated: boolean;
   token: string | null;
   user?: AuthUser;
+  serverProfile: AuthServerProfile | null;
+  isSuperAdmin: boolean;
   error: string | null;
   login: () => Promise<void>;
   logout: () => Promise<void>;
@@ -37,6 +77,8 @@ const defaultAuthValue: AuthContextValue = {
   isAuthenticated: true,
   token: null,
   user: undefined,
+  serverProfile: null,
+  isSuperAdmin: false,
   error: null,
   login: async () => {},
   logout: async () => {},
@@ -45,57 +87,15 @@ const defaultAuthValue: AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue>(defaultAuthValue);
 
-type KeycloakConfigShape = {
-  enabled: boolean;
-  url: string;
-  realm: string;
-  clientId: string;
-  silentCheckSsoUrl?: string;
-  initOptions: KeycloakInitOptions;
-  error?: string | null;
-};
+// config type moved to ./config
 
-function resolveKeycloakConfig(): KeycloakConfigShape {
-  const flagRaw = (import.meta.env.VITE_KEYCLOAK_ENABLED ?? 'false').toString().trim().toLowerCase();
-  const flagEnabled = flagRaw !== 'false' && flagRaw !== '0' && flagRaw !== '';
+// resolveKeycloakConfig moved to ./config
 
-  const url = (import.meta.env.VITE_KEYCLOAK_URL ?? '').toString().trim();
-  const realm = (import.meta.env.VITE_KEYCLOAK_REALM ?? '').toString().trim();
-  const clientId = (import.meta.env.VITE_KEYCLOAK_CLIENT_ID ?? '').toString().trim();
-  const providedSilent = (import.meta.env.VITE_KEYCLOAK_SILENT_CHECK_SSO ?? '').toString().trim();
-  const silentCheckSsoUrl = (providedSilent.length > 0
-    ? providedSilent
-    : (typeof window !== 'undefined' ? `${window.location.origin}/silent-check-sso.html` : '')
-  ) || undefined;
+// resolveApiBaseUrl moved to utils/apiBase
 
-  const hasConfig = Boolean(url && realm && clientId);
-  const enabled = flagEnabled && hasConfig;
+// normalizeBaseUrl moved to utils/apiBase
 
-  const error = flagEnabled && !hasConfig
-    ? 'Brakuje konfiguracji Keycloak (URL, realm lub clientId). Autoryzacja została tymczasowo wyłączona.'
-    : null;
-
-  return {
-    enabled,
-    url,
-    realm,
-    clientId,
-    silentCheckSsoUrl,
-    initOptions: {
-      onLoad: 'check-sso',
-      checkLoginIframe: false,
-      enableLogging: false,
-      pkceMethod: 'S256',
-      // Use silent SSO via iframe when available to avoid full-page redirects
-      silentCheckSsoRedirectUri: silentCheckSsoUrl,
-      // Prevent redirect fallback when silent SSO fails (e.g., HTTP context or 3rd-party cookies blocked)
-      silentCheckSsoFallback: false,
-      // Ensure the redirect lands back on the app root without hash fragments
-      redirectUri: typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : undefined,
-    },
-    error,
-  };
-}
+// buildProfileBaseCandidates moved to utils/apiBase
 
 function collectRoles(token: KeycloakTokenParsed | undefined, clientId: string): string[] {
   if (!token) {
@@ -176,13 +176,16 @@ type AuthProviderProps = {
 };
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  const keycloakConfig = useMemo(resolveKeycloakConfig, []);
+  const keycloakConfig = useMemo(resolveKcCfg, []);
   const [state, setState] = useState<AuthContextValue>(() => ({
     enabled: keycloakConfig.enabled,
     ready: !keycloakConfig.enabled,
-    isAuthenticated: !keycloakConfig.enabled,
+    // Never assume authenticated when Keycloak is disabled; require explicit login
+    isAuthenticated: false,
     token: null,
     user: undefined,
+    serverProfile: null,
+    isSuperAdmin: false,
     error: keycloakConfig.error ?? null,
     login: async () => {},
     logout: async () => {},
@@ -190,6 +193,103 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }));
 
   const keycloakRef = useRef<KeycloakInstance | null>(null);
+  const apiBaseUrlRef = useRef<string>(resolveApiBaseUrlExt());
+
+  const refreshServerProfile = useCallback(async (token: string | null) => {
+    if (!token) {
+      setState((prev) => ({
+        ...prev,
+        serverProfile: null,
+        isSuperAdmin: false,
+      }));
+      return null;
+    }
+
+    const bases = buildProfileBaseCandidatesExt(apiBaseUrlRef.current);
+    let lastError: unknown = null;
+
+    for (const base of bases) {
+      try {
+        const response = await fetch(`${base}/auth/profile`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          lastError = new Error(`Profile fetch failed (${response.status})`);
+          // Tolerate non-401 errors during base discovery (e.g. 404 from dev server
+          // when using a stale /api prefix). Only stop immediately on 401, which
+          // indicates an invalid or missing token and will not be fixed by
+          // switching origins.
+          if (response.status !== 401) {
+            continue;
+          }
+          break;
+        }
+
+        const payload = (await response.json()) as AuthServerProfile;
+
+        apiBaseUrlRef.current = base;
+        if (typeof window !== 'undefined') {
+          try {
+            window.localStorage.setItem(LAST_BASE_STORAGE_KEY, base);
+          } catch {
+            // ignore storage errors (e.g. quota exceeded)
+          }
+        }
+
+        setState((prev) => {
+          const serverUser = payload.user;
+          const mergedUser: AuthUser | undefined = serverUser
+            ? (() => {
+                const normalised = normaliseServerUser(serverUser);
+                const mergedRoles = Array.from(
+                  new Set([...(prev.user?.roles ?? []), ...normalised.roles]),
+                );
+                return {
+                  ...prev.user,
+                  ...normalised,
+                  roles: mergedRoles,
+                };
+              })()
+            : prev.user;
+
+          return {
+            ...prev,
+            user: mergedUser,
+            serverProfile: payload,
+            isSuperAdmin: Boolean(payload?.diagnostics?.isSuperAdmin),
+          };
+        });
+
+        return payload;
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        const isNetworkIssue = error instanceof TypeError || /Failed to fetch|NetworkError|ERR_/i.test(message);
+        if (isNetworkIssue) {
+          continue;
+        }
+        break;
+      }
+    }
+
+    if (lastError) {
+      // W dev często testujemy różne originy; zmniejszamy hałas w konsoli
+      // i logujemy jako info.
+      console.info('Nie udało się pobrać profilu użytkownika z backendu', lastError);
+    }
+
+    setState((prev) => ({
+      ...prev,
+      serverProfile: null,
+      isSuperAdmin: false,
+    }));
+    return null;
+  }, []);
 
   const updateFromInstance = useCallback(
     (kc: KeycloakInstance | null, options?: { authenticated?: boolean; error?: string | null }) => {
@@ -198,29 +298,36 @@ export function AuthProvider({ children }: AuthProviderProps) {
           ...prev,
           enabled: keycloakConfig.enabled,
           ready: !keycloakConfig.enabled,
-          isAuthenticated: !keycloakConfig.enabled,
+          isAuthenticated: keycloakConfig.enabled ? false : prev.isAuthenticated,
           token: null,
-          user: undefined,
+          user: keycloakConfig.enabled ? undefined : prev.user,
+          serverProfile: null,
+          isSuperAdmin: false,
           error: options?.error ?? keycloakConfig.error ?? null,
         }));
+        if (keycloakConfig.enabled) {
+          void refreshServerProfile(null);
+        }
         return;
       }
 
       const authenticated = options?.authenticated ?? Boolean(kc.authenticated && kc.token);
 
-      setState({
+      setState((prev) => ({
+        ...prev,
         enabled: true,
         ready: true,
         isAuthenticated: authenticated,
         token: authenticated ? kc.token ?? null : null,
         user: authenticated ? buildUser(kc.tokenParsed, keycloakConfig.clientId) : undefined,
+        serverProfile: authenticated ? prev.serverProfile : null,
+        isSuperAdmin: authenticated ? prev.isSuperAdmin : false,
         error: options?.error ?? null,
-        login: async () => {},
-        logout: async () => {},
-        refresh: async () => null,
-      });
+      }));
+
+      void refreshServerProfile(authenticated && kc.token ? kc.token : null);
     },
-    [keycloakConfig.clientId, keycloakConfig.enabled, keycloakConfig.error],
+    [keycloakConfig.clientId, keycloakConfig.enabled, keycloakConfig.error, refreshServerProfile],
   );
 
   useEffect(() => {
@@ -229,11 +336,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return;
     }
 
-    const keycloak = new Keycloak({
-      url: keycloakConfig.url,
-      realm: keycloakConfig.realm,
-      clientId: keycloakConfig.clientId,
-    });
+    const keycloak = createKeycloak(keycloakConfig);
 
     keycloakRef.current = keycloak;
     let cancelled = false;
@@ -299,7 +402,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       await keycloakRef.current.login();
     } catch (error) {
-      console.error('Keycloak login failed', error);
+      // Fallback: spróbuj przekierować bezpośrednio na endpoint Keycloak
+      console.error('Keycloak login failed, redirecting directly to Keycloak', error);
+      try {
+        const redirectUri = typeof window !== 'undefined' ? (window.location.origin + window.location.pathname) : '';
+        const base = keycloakConfig.url.replace(/\/$/, '');
+        const url = `${base}/realms/${keycloakConfig.realm}/protocol/openid-connect/auth?client_id=${encodeURIComponent(
+          keycloakConfig.clientId,
+        )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=openid`;
+        if (redirectUri) {
+          window.location.href = url;
+          return;
+        }
+      } catch (e) {
+        // ignore
+      }
       updateFromInstance(keycloakRef.current, { authenticated: false, error: 'Nie udało się rozpocząć logowania.' });
     }
   }, [keycloakConfig.enabled, updateFromInstance]);
@@ -345,12 +462,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
       isAuthenticated: state.isAuthenticated,
       token: state.token,
       user: state.user,
+      serverProfile: state.serverProfile,
+      isSuperAdmin: state.isSuperAdmin,
       error: state.error,
       login,
       logout,
       refresh,
     }),
-    [login, refresh, logout, state.enabled, state.error, state.isAuthenticated, state.ready, state.token, state.user],
+    [
+      login,
+      refresh,
+      logout,
+      state.enabled,
+      state.error,
+      state.isAuthenticated,
+      state.ready,
+      state.token,
+      state.user,
+      state.serverProfile,
+      state.isSuperAdmin,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -358,4 +489,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
 export function useAuth(): AuthContextValue {
   return useContext(AuthContext);
+}
+function normaliseServerUser(user: NonNullable<AuthServerProfile['user']>): AuthUser {
+  return {
+    sub: user.sub ?? undefined,
+    name: user.name ?? undefined,
+    username: user.username ?? undefined,
+    email: user.email ?? undefined,
+    accountId: user.accountId ?? undefined,
+    roles: Array.isArray(user.roles) ? user.roles : [],
+  };
 }

@@ -1,0 +1,33 @@
+http://chat.garden {
+  # Bind only to LAN interface
+  bind 192.168.14.55
+
+  encode zstd gzip
+
+  # API under /api -> backend :3025
+  @api path /api/*
+  handle @api {
+    uri strip_prefix /api
+    reverse_proxy 127.0.0.1:3025
+  }
+
+  # Keycloak under /auth -> upstream :8080 (HTTP)
+  @kc path /auth*
+  handle @kc {
+    uri strip_prefix /auth
+    reverse_proxy 192.168.14.55:8080
+  }
+
+  # Keycloak OIDC endpoints without prefix (issuer uses /realms/*)
+  @kc2 path /realms/*
+  handle @kc2 {
+    reverse_proxy 192.168.14.55:8080
+  }
+
+  # Serve static build directly from host (fallback)
+  handle {
+    root * /home/ubuntu/Projects/chatapp/frontend/dist
+    try_files {path} /index.html
+    file_server
+  }
+}

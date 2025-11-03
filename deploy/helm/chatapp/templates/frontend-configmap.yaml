@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "chatapp.fullname" . }}-frontend-config
+data:
+  runtime-config.js: |
+    (function(){
+      window.__CHATAPP_CONFIG = Object.assign({}, (window.__CHATAPP_CONFIG || {}), {
+        chatApiUrl: {{ .Values.frontend.runtimeConfig.chatApiUrl | quote }},
+        chatStreaming: {{ default false .Values.frontend.runtimeConfig.chatStreaming }},
+        requireAuth: {{ default true .Values.frontend.runtimeConfig.requireAuth }},
+        keycloak: {
+          enabled: {{ default true .Values.frontend.runtimeConfig.keycloak.enabled }},
+          url: {{ .Values.frontend.runtimeConfig.keycloak.url | quote }},
+          realm: {{ .Values.frontend.runtimeConfig.keycloak.realm | quote }},
+          clientId: {{ .Values.frontend.runtimeConfig.keycloak.clientId | quote }}{{ if .Values.frontend.runtimeConfig.keycloak.silentCheckSso }},
+          silentCheckSso: {{ .Values.frontend.runtimeConfig.keycloak.silentCheckSso | quote }}{{ end }}
+        }
+      });
+    })();

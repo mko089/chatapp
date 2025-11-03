@@ -194,9 +194,17 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
   const timestamp = formatTimeLabel(tool.timestamp);
   const csvPayload = toCsv(tool);
   const [expanded, setExpanded] = useState(false);
-  const [tab, setTab] = useState<'preview' | 'json' | 'csv'>('preview');
+  const [tab, setTab] = useState<'preview' | 'json' | 'csv' | 'raw'>('preview');
   const jsonPayload = toPrettyJson(tool.result);
-  const rendered = tab === 'preview' ? summary : tab === 'json' ? jsonPayload : (csvPayload ?? 'Brak danych CSV');
+  const rawPayload = tool.rawArgs === undefined ? 'Brak surowych argumentów' : (typeof tool.rawArgs === 'string' ? tool.rawArgs : toPrettyJson(tool.rawArgs));
+  const rendered =
+    tab === 'preview'
+      ? summary
+      : tab === 'json'
+        ? jsonPayload
+        : tab === 'csv'
+          ? (csvPayload ?? 'Brak danych CSV')
+          : rawPayload;
 
   const handleCopy = async () => {
     const payload = prettyFormatter ? prettyFormatter(tool) : summary;
@@ -237,6 +245,7 @@ function ToolResultCard({ tool, summary, onInspect, prettyFormatter }: ToolResul
         <button type="button" className={`chip ${tab==='preview' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('preview')}>Podgląd</button>
         <button type="button" className={`chip ${tab==='json' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('json')}>JSON</button>
         <button type="button" className={`chip ${tab==='csv' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('csv')}>CSV</button>
+        <button type="button" className={`chip ${tab==='raw' ? 'chip-accent' : 'chip-muted'}`} onClick={() => setTab('raw')}>RAW</button>
       </div>
       <pre className={`${expanded ? 'max-h-[70vh]' : 'max-h-64'} overflow-auto whitespace-pre-wrap break-words rounded-xl bg-surface-muted/60 px-4 py-3 text-sm text-slate-200`}>{rendered}</pre>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-slate-300">
